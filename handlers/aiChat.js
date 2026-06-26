@@ -34,3 +34,27 @@ export async function askClaude(userMessage, history = []) {
       headers: {
         "Content-Type": "application/json",
         "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 1024,
+        system: SYSTEM_PROMPT,
+        messages
+      })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      console.error("Ошибка Anthropic API:", data);
+      return "Извините, у меня небольшой технический сбой 🙏 Давайте я передам ваш контакт руководителю — он свяжется с вами в ближайшее время.";
+    }
+
+    const reply = data.content?.[0]?.text?.trim();
+    return reply || "Извините, не расслышала. Можете повторить?";
+  } catch (err) {
+    console.error("Ошибка askClaude:", err);
+    return "Извините, у меня небольшой технический сбой 🙏 Давайте я передам ваш контакт руководителю — он свяжется с вами в ближайшее время.";
+  }
+}
