@@ -13,7 +13,9 @@ AI-менеджер по продажам для Telegram и WhatsApp. Бот в
 - **Стоп-слова**: при «не нужно / передумал» бот вежливо прощается.
 - **Follow-up**: автосообщения через 30 мин, 3 часа, 1, 3 и 7 дней
   (`handlers/followup.js`), сбрасываются при ответе клиента.
-- **Сбор лидов** в `orders.json`, отдаётся по `GET /orders`.
+- **Сбор лидов** в Supabase (таблица `specto_bot_orders`), отдаётся по `GET /orders`.
+- **История диалогов** в Supabase (`specto_bot_messages`) — переживает рестарты.
+  Без ключей Supabase бот откатывается на `orders.json` + память.
 - **Дедуп webhook'ов** (`handlers/dedup.js`): повторные доставки от
   Telegram/WhatsApp игнорируются, чтобы не отвечать дважды.
 
@@ -21,14 +23,25 @@ AI-менеджер по продажам для Telegram и WhatsApp. Бот в
 
 ```
 index.js              HTTP-сервер (Express), маршруты вебхуков
-db.js                 Хранилище лидов в orders.json
+supabaseClient.js     Клиент Supabase (null, если ключи не заданы)
+db.js                 Лиды: Supabase specto_bot_orders (откат — orders.json)
 whatsapp.js           Отправка сообщений в Telegram и WhatsApp
 handlers/
-  router.js           Маршрутизация входящих, история, стоп-слова
+  router.js           Маршрутизация входящих, стоп-слова
   aiChat.js           Запрос к Claude (Anthropic Messages API)
+  history.js          История диалогов: Supabase specto_bot_messages (откат — память)
   followup.js         Таймеры дожимающих сообщений
   dedup.js            Защита от повторной обработки webhook
 ```
+
+## Хранилище (Supabase)
+
+Лиды и история диалогов хранятся в проекте Supabase в таблицах
+`specto_bot_orders` и `specto_bot_messages` (RLS включён — доступ только под
+`service_role`). Бот использует `SUPABASE_URL` + `SUPABASE_SERVICE_KEY`.
+
+Если эти переменные не заданы, бот работает в **локальном режиме**: лиды — в
+`orders.json`, история — в памяти (теряется при рестарте). Удобно для отладки.
 
 ## Локальный запуск
 
@@ -57,6 +70,8 @@ curl http://localhost:3000/orders   # → []
 | `WHATSAPP_TOKEN` | Токен WhatsApp Cloud API |
 | `PHONE_NUMBER_ID` | ID номера WhatsApp Cloud API |
 | `VERIFY_TOKEN` | Строка верификации webhook WhatsApp |
+| `SUPABASE_URL` | URL проекта Supabase (опц., иначе локальный режим) |
+| `SUPABASE_SERVICE_KEY` | service_role ключ Supabase (опц.) |
 | `PORT` | Порт сервера (по умолчанию 3000) |
 | `RAILWAY_PUBLIC_DOMAIN` | Домен для авто-установки Telegram webhook |
 
@@ -86,5 +101,7 @@ curl "https://api.telegram.org/bot<TELEGRAM_TOKEN>/setWebhook?url=https://<до�
 
 ## Заметки
 
-- Хранилище лидов и история диалогов живут в файле/памяти и сбрасываются при
-  рестарте контейнера. Для продакшена стоит вынести в БД (например, Supabase).
+- Лиды и история диалогов персистентны (Supabase) и переживают рестарты.
+- **Follow-up таймеры** остаются в памяти (`setTimeout`) и при рестарте
+  контейнера сбрасываются — для гарантированной доставки отложенных сообщений
+  нужен внешний планировщик (cron/очередь). Это вне текущего объёма.

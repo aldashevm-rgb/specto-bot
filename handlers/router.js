@@ -2,8 +2,8 @@ import { askClaude } from "./aiChat.js";
 import { sendMessage } from "../whatsapp.js";
 import { startFollowUp, cancelFollowUp } from "./followup.js";
 import { saveOrder } from "../db.js";
+import { getHistory, addMessage } from "./history.js";
 
-const userHistory = {};
 const userStatus = {};
 
 const STOP_WORDS = [
@@ -14,7 +14,6 @@ const STOP_WORDS = [
 export async function handleMessage(chatId, text, platform = "telegram") {
   const lower = text.toLowerCase();
 
-  if (!userHistory[chatId]) userHistory[chatId] = [];
   if (!userStatus[chatId]) userStatus[chatId] = "active";
 
   cancelFollowUp(chatId);
@@ -33,24 +32,23 @@ export async function handleMessage(chatId, text, platform = "telegram") {
     userStatus[chatId] = "active";
   }
 
-  userHistory[chatId].push({ role: "user", content: text });
+  const history = await getHistory(chatId);
+  const isFirstMessage = history.length === 0;
 
-  const reply = await askClaude(text, userHistory[chatId].slice(0, -1));
+  await addMessage(chatId, platform, "user", text);
 
-  userHistory[chatId].push({ role: "assistant", content: reply });
+  const reply = await askClaude(text, history);
 
-  if (userHistory[chatId].length > 20) {
-    userHistory[chatId] = userHistory[chatId].slice(-20);
-  }
+  await addMessage(chatId, platform, "assistant", reply);
 
   await sendMessage(chatId, reply, platform);
 
-  if (userHistory[chatId].length <= 2) {
-    saveOrder({
+  // Создаём лид при первом входящем сообщении от клиента
+  if (isFirstMessage) {
+    await saveOrder({
       phone: chatId,
       name: "Новый лид",
       details: text,
-      date: new Date().toLocaleString("ru-RU"),
       platform
     });
   }

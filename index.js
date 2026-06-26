@@ -47,7 +47,7 @@ app.post("/webhook", async (req, res) => {
 
 app.get("/orders", async (req, res) => {
   const { getOrders } = await import("./db.js");
-  res.json(getOrders());
+  res.json(await getOrders());
 });
 
 const PORT = process.env.PORT || 3000;
