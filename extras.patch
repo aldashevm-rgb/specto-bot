@@ -1,0 +1,440 @@
+From bd27e00c01a950d6052b97172ed08833e44eb35c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 27 Jun 2026 14:47:50 +0000
+Subject: [PATCH] Add hot-leads dashboard, stuck-lead alerts, richer rubric
+
+Three follow-on features on top of the qualification watchdog:
+
+- Dashboard: GET /hot serves an HTML table of qualified leads sorted by
+  ai_qual_score (or ?format=json), so managers call the warmest first.
+  Guarded by ORDERS_API_KEY (header or ?key=). db.getHotLeads backs it;
+  renderHotHtml is a pure, HTML-escaped (XSS-safe) renderer.
+- Stuck-lead alerts: the watchdog now flags hot leads (score >= 60) where
+  the client wrote last and no manager reply for > N hours (defaults via
+  WATCHDOG_STUCK_HOURS / WATCHDOG_STUCK_MIN_SCORE) and sends a digest
+  alert. isStuck() is pure/tested; findStuckLeads scans chats via the new
+  db.getLastMessage.
+- Richer rubric: qualify.js gains explicit 0-100 score bands in the
+  system prompt and two new profile fields (category, next_step). The
+  dashboard falls back to niche/summary for leads scored under the old
+  schema, so nothing breaks; a `qualify.js --restale` run refreshes them.
+
+9 new tests (32 total pass).
+---
+ .env.example           |  4 +++
+ db.js                  | 37 ++++++++++++++++++++++
+ handlers/dashboard.js  | 47 ++++++++++++++++++++++++++++
+ handlers/qualify.js    | 37 ++++++++++++++++------
+ handlers/watchdog.js   | 54 ++++++++++++++++++++++++++++++--
+ index.js               | 19 +++++++++++-
+ test/dashboard.test.js | 70 ++++++++++++++++++++++++++++++++++++++++++
+ 7 files changed, 255 insertions(+), 13 deletions(-)
+ create mode 100644 handlers/dashboard.js
+ create mode 100644 test/dashboard.test.js
+
+diff --git a/.env.example b/.env.example
+index 6d477e4..cf520bd 100644
+--- a/.env.example
++++ b/.env.example
+@@ -35,6 +35,10 @@ WATCHDOG_BATCH=20
+ # Необязательно: вебхук для алертов (Slack/Telegram-бридж, формат {"text": "..."}).
+ # Если не задан — алерты только в логи.
+ WATCHDOG_ALERT_WEBHOOK=
++# «Застрявшие» лиды: горячий лид (score >= STUCK_MIN_SCORE), где клиент написал
++# последним и менеджер молчит дольше STUCK_HOURS часов → алерт.
++WATCHDOG_STUCK_HOURS=4
++WATCHDOG_STUCK_MIN_SCORE=60
+ 
+ # --- Прочее ---
+ ORDERS_API_KEY=
+diff --git a/db.js b/db.js
+index 562543e..e44224b 100644
+--- a/db.js
++++ b/db.js
+@@ -316,4 +316,41 @@ export async function saveQualification(leadId, score, profile) {
+     console.error("saveQualification error:", err.message);
+     return false;
+   }
++}
++
++// --- Дашборд / сторож ---
++
++// Горячие (квалифицированные) лиды, отсортированные по баллу. Для дашборда /hot.
++export async function getHotLeads({ limit = 50, minScore = 0, projectId = null } = {}) {
++  if (!ready) return [];
++  try {
++    let path =
++      `/leads?select=id,name,phone,project_id,ai_qual_score,ai_qual_profile,ai_qual_at` +
++      `&ai_qual_at=not.is.null&ai_qual_score=gte.${minScore}` +
++      `&order=ai_qual_score.desc&limit=${limit}`;
++    if (projectId) path += `&project_id=eq.${encodeURIComponent(projectId)}`;
++    const res = await rest(path, { headers: headers() });
++    return await res.json();
++  } catch (err) {
++    console.error("getHotLeads error:", err.message);
++    return [];
++  }
++}
++
++// Последнее сообщение в чате: { direction, created_at } или null.
++// Нужно сторожу, чтобы найти «застрявшие» лиды (последнее слово за клиентом).
++export async function getLastMessage(chatId) {
++  if (!ready) return null;
++  try {
++    const res = await rest(
++      `/whatsapp_messages?chat_id=eq.${encodeURIComponent(chatId)}` +
++      `&select=direction,created_at&order=created_at.desc&limit=1`,
++      { headers: headers() }
++    );
++    const rows = await res.json();
++    return rows[0] || null;
++  } catch (err) {
++    console.error("getLastMessage error:", err.message);
++    return null;
++  }
+ }
+\ No newline at end of file
+diff --git a/handlers/dashboard.js b/handlers/dashboard.js
+new file mode 100644
+index 0000000..1e8004f
+--- /dev/null
++++ b/handlers/dashboard.js
+@@ -0,0 +1,47 @@
++// Рендер простого HTML-дашборда горячих лидов. Чистая функция — тестируется.
++
++function esc(s) {
++  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
++    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
++  }[c]));
++}
++
++// leads: массив строк из getHotLeads. Возвращает строку HTML.
++export function renderHotHtml(leads = []) {
++  const rows = leads.map((l) => {
++    const p = l.ai_qual_profile || {};
++    return (
++      "<tr>" +
++      `<td class="s">${esc(l.ai_qual_score)}</td>` +
++      `<td>${esc(l.name)}</td>` +
++      `<td>${esc(l.phone)}</td>` +
++      `<td>${esc(p.readiness)}</td>` +
++      `<td>${esc(p.category || p.niche)}</td>` +
++      `<td>${esc(p.urgency)}</td>` +
++      `<td>${esc(p.next_step || p.summary)}</td>` +
++      "</tr>"
++    );
++  }).join("\n");
++
++  return (
++    '<!doctype html><html lang="ru"><head><meta charset="utf-8">' +
++    '<meta name="viewport" content="width=device-width, initial-scale=1">' +
++    "<title>Горячие лиды — SPECTO</title>" +
++    "<style>" +
++    "body{font-family:system-ui,Arial,sans-serif;margin:24px;color:#1a1a1a}" +
++    "table{border-collapse:collapse;width:100%}" +
++    "th,td{border:1px solid #ddd;padding:6px 8px;font-size:14px;text-align:left;vertical-align:top}" +
++    "th{background:#f5f5f5;position:sticky;top:0}" +
++    ".s{font-weight:700;text-align:center}" +
++    "tr:hover{background:#fafafa}" +
++    "h2{margin:0 0 16px}" +
++    "</style></head><body>" +
++    `<h2>🔥 Горячие лиды (${leads.length})</h2>` +
++    "<table><thead><tr>" +
++    "<th>Score</th><th>Имя</th><th>Телефон</th><th>Готовность</th>" +
++    "<th>Категория/ниша</th><th>Срочность</th><th>След. шаг</th>" +
++    "</tr></thead><tbody>" +
++    rows +
++    "</tbody></table></body></html>"
++  );
++}
+diff --git a/handlers/qualify.js b/handlers/qualify.js
+index 5c3403a..88a4438 100644
+--- a/handlers/qualify.js
++++ b/handlers/qualify.js
+@@ -21,8 +21,14 @@ const SYSTEM_PROMPT =
+   `Ты — аналитик отдела продаж компании SPECTO. Тебе дают переписку менеджера ` +
+   `с потенциальным клиентом в WhatsApp. Оцени лида: насколько он близок к покупке ` +
+   `и что мы о нём знаем. Опирайся ТОЛЬКО на факты из переписки — не выдумывай. ` +
+-  `Если данных по полю нет, пиши "неизвестно". Отвечай строго вызовом инструмента ` +
+-  `record_qualification, без текста.`;
++  `Если данных по полю нет, пиши "неизвестно".\n\n` +
++  `Шкала score (готовность к покупке):\n` +
++  `0–20 — холодный/отказ/нецелевой (партнёрское предложение, спам, явный отказ);\n` +
++  `21–40 — слабый интерес, запрос без конкретики (нет товара/объёма/города);\n` +
++  `41–60 — интересуется, есть часть деталей, но не определился или сравнивает цены;\n` +
++  `61–80 — тёплый: назвал конкретный товар, объём и/или город, оставил контакт, ждёт расчёт;\n` +
++  `81–100 — горячий: жёсткая срочность, крупный объём, дал реквизиты/оплатил, готов покупать.\n\n` +
++  `Отвечай строго вызовом инструмента record_qualification, без текста.`;
+ 
+ // Инструмент с input_schema — заставляет модель вернуть структурированный JSON
+ // (tool_choice ниже форсирует именно его), это надёжнее парсинга текста.
+@@ -35,23 +41,30 @@ export const QUAL_TOOL = {
+       score: {
+         type: "integer",
+         description:
+-          "Готовность к покупке от 0 до 100. 0 — холодный/отказ, " +
+-          "50 — интересуется, но сомневается, 100 — готов покупать сейчас."
++          "Готовность к покупке 0–100 по шкале из system-промпта: " +
++          "0–20 холодный/отказ, 21–40 слабый интерес, 41–60 интересуется, " +
++          "61–80 тёплый, 81–100 горячий."
+       },
+       budget: {
+         type: "string",
+         description:
+           "Оценка бюджета клиента: неизвестно | низкий | средний | высокий. " +
+-          "Если в переписке есть конкретные суммы — добавь их."
++          "Если в переписке есть конкретные суммы или объёмы — добавь их."
+       },
+       urgency: {
+         type: "string",
+-        description: "Срочность потребности: низкая | средняя | высокая."
++        description: "Срочность потребности: низкая | средняя | высокая (+ срок, если назван)."
+       },
+       niche: {
+         type: "string",
+         description:
+-          "Ниша/сфера бизнеса клиента или направление, которым он интересуется."
++          "Ниша/сфера бизнеса клиента или направление, которым он интересуется (+ город/регион)."
++      },
++      category: {
++        type: "string",
++        description:
++          "Категория товара одним словом из списка: ЖБИ | металлопрокат | кабель | " +
++          "сэндвич-панели | опоры освещения | трубы | другое | не определено."
+       },
+       readiness: {
+         type: "string",
+@@ -59,7 +72,11 @@ export const QUAL_TOOL = {
+       },
+       summary: {
+         type: "string",
+-        description: "1–2 предложения: ключевой вывод о лиде и следующий шаг."
++        description: "1–2 предложения: ключевой вывод о лиде."
++      },
++      next_step: {
++        type: "string",
++        description: "Рекомендуемый следующий шаг менеджера одной фразой (что сделать сейчас)."
+       },
+       signals: {
+         type: "array",
+@@ -67,7 +84,7 @@ export const QUAL_TOOL = {
+         description: "Короткие факты-сигналы из переписки, повлиявшие на оценку."
+       }
+     },
+-    required: ["score", "budget", "urgency", "niche", "readiness", "summary"]
++    required: ["score", "budget", "urgency", "niche", "category", "readiness", "summary", "next_step"]
+   }
+ };
+ 
+@@ -115,8 +132,10 @@ export function parseQualification(input) {
+     budget: input.budget ?? "неизвестно",
+     urgency: input.urgency ?? "неизвестно",
+     niche: input.niche ?? "неизвестно",
++    category: input.category ?? "не определено",
+     readiness: input.readiness ?? "неизвестно",
+     summary: input.summary ?? "",
++    next_step: input.next_step ?? "",
+     signals: Array.isArray(input.signals) ? input.signals : []
+   };
+   return { score, profile };
+diff --git a/handlers/watchdog.js b/handlers/watchdog.js
+index 1001e94..16b708c 100644
+--- a/handlers/watchdog.js
++++ b/handlers/watchdog.js
+@@ -1,5 +1,5 @@
+-import { processQualifications } from "./qualify.js";
+-import { isDbReady, healthPing } from "../db.js";
++import { processQualifications, phoneLast10 } from "./qualify.js";
++import { isDbReady, healthPing, getRecentWaChats, getLastMessage, getLeadForPhone } from "../db.js";
+ 
+ // Агент-сторож: следит за здоровьем системы квалификации и сам «ремонтирует» её.
+ // За один прогон он:
+@@ -28,6 +28,40 @@ export async function sendAlert(text) {
+   }
+ }
+ 
++// Чистая проверка «застрял ли лид»: последнее слово за клиентом (in),
++// сообщение старше minHours, и лид достаточно горячий (score >= minScore).
++export function isStuck(lastMessage, lead, { minHours, minScore, now }) {
++  if (!lastMessage || lastMessage.direction !== "in") return false;
++  if (!lead || (lead.ai_qual_score ?? 0) < minScore) return false;
++  const ts = new Date(lastMessage.created_at).getTime();
++  if (Number.isNaN(ts)) return false;
++  return ts <= now - minHours * 60 * 60 * 1000;
++}
++
++// Находит горячие лиды, у которых клиент написал последним и менеджер не ответил
++// дольше minHours. Возвращает массив { lead_id, name, score, chat_id, last_in }.
++export async function findStuckLeads({ minHours = 4, minScore = 60, now = Date.now() } = {}) {
++  const chats = await getRecentWaChats({ sinceIso: null });
++  const stuck = [];
++  for (const chat of chats) {
++    const last = await getLastMessage(chat.chat_id);
++    if (!last || last.direction !== "in") continue; // дешёвый отсев до запроса лида
++    const phoneNorm = phoneLast10(chat.chat_id);
++    if (!phoneNorm) continue;
++    const lead = await getLeadForPhone(phoneNorm, chat.project_id);
++    if (!isStuck(last, lead, { minHours, minScore, now })) continue;
++    stuck.push({
++      lead_id: lead.id,
++      name: lead.name,
++      score: lead.ai_qual_score,
++      chat_id: chat.chat_id,
++      last_in: last.created_at
++    });
++  }
++  stuck.sort((a, b) => b.score - a.score);
++  return stuck;
++}
++
+ // Сводит результаты прогона квалификации в отчёт по причинам/статусам.
+ export function summarize(results = []) {
+   const report = {
+@@ -64,6 +98,8 @@ export async function runWatchdog(opts = {}) {
+   const {
+     limit = Number(process.env.WATCHDOG_BATCH) || 20,
+     sinceIso = null,
++    stuckHours = Number(process.env.WATCHDOG_STUCK_HOURS) || 4,
++    stuckMinScore = Number(process.env.WATCHDOG_STUCK_MIN_SCORE) || 60,
+     alert = sendAlert,
+     log = console.log
+   } = opts;
+@@ -102,9 +138,21 @@ export async function runWatchdog(opts = {}) {
+     await alert(`⚠️ Сторож: ${report.failed} лид(ов) не удалось квалифицировать (ai_failed). Проверьте Claude/лимиты.`);
+   }
+ 
++  // 5. «Застрявшие» горячие лиды: клиент написал последним, менеджер молчит.
++  const stuck = await findStuckLeads({ minHours: stuckHours, minScore: stuckMinScore });
++  report.stuck = stuck.length;
++  if (stuck.length) {
++    const lines = stuck.slice(0, 15).map(s => `• ${s.name || s.lead_id} (score ${s.score})`);
++    const extra = stuck.length > 15 ? `\n…и ещё ${stuck.length - 15}` : "";
++    await alert(
++      `⏰ Сторож: ${stuck.length} горяч. лид(ов) ждут ответа дольше ${stuckHours}ч:\n` +
++      lines.join("\n") + extra
++    );
++  }
++
+   log(
+     `Сторож: вылечено=${report.healed} (missing=${report.missing}, stale=${report.stale}, qc=${report.qc}), ` +
+-    `сбоев=${report.failed}.`
++    `сбоев=${report.failed}, застряло=${report.stuck}.`
+   );
+   return report;
+ }
+diff --git a/index.js b/index.js
+index 1b5751c..a77bbfb 100644
+--- a/index.js
++++ b/index.js
+@@ -5,7 +5,8 @@ import { sendMessage } from "./whatsapp.js";
+ import { processDueFollowups } from "./handlers/followup.js";
+ import { processQualifications } from "./handlers/qualify.js";
+ import { runWatchdog } from "./handlers/watchdog.js";
+-import { getOrders, isDbReady } from "./db.js";
++import { renderHotHtml } from "./handlers/dashboard.js";
++import { getOrders, getHotLeads, isDbReady } from "./db.js";
+ 
+ const app = express();
+ // Сохраняем сырое тело — нужно для проверки HMAC-подписи WhatsApp.
+@@ -69,6 +70,22 @@ app.get("/orders", async (req, res) => {
+   res.json(await getOrders());
+ });
+ 
++// Дашборд горячих лидов. По умолчанию — HTML-таблица (открыть в браузере),
++// ?format=json — данные. Защита тем же ORDERS_API_KEY (если задан): ключ можно
++// передать заголовком Authorization: Bearer ... или ?key=...
++app.get("/hot", async (req, res) => {
++  if (ORDERS_API_KEY) {
++    const authed = req.get("authorization") === `Bearer ${ORDERS_API_KEY}` || req.query.key === ORDERS_API_KEY;
++    if (!authed) return res.sendStatus(401);
++  }
++  const minScore = Number(req.query.min) || 0;
++  const limit = Math.min(Number(req.query.limit) || 50, 500);
++  const leads = await getHotLeads({ minScore, limit });
++  const wantsJson = req.query.format === "json" || (req.get("accept") || "").includes("application/json");
++  if (wantsJson) return res.json(leads);
++  res.set("Content-Type", "text/html; charset=utf-8").send(renderHotHtml(leads));
++});
++
+ const PORT = process.env.PORT || 3000;
+ app.listen(PORT, () => {
+   console.log("SPECTO бот запущен на порту " + PORT);
+diff --git a/test/dashboard.test.js b/test/dashboard.test.js
+new file mode 100644
+index 0000000..84487a4
+--- /dev/null
++++ b/test/dashboard.test.js
+@@ -0,0 +1,70 @@
++import { test } from "node:test";
++import assert from "node:assert/strict";
++
++import { renderHotHtml } from "../handlers/dashboard.js";
++import { isStuck } from "../handlers/watchdog.js";
++import { parseQualification } from "../handlers/qualify.js";
++
++test("renderHotHtml: выводит счётчик, балл и поля профиля", () => {
++  const html = renderHotHtml([
++    { name: "Игорь", phone: "7701", ai_qual_score: 82,
++      ai_qual_profile: { readiness: "горячий", category: "ЖБИ", urgency: "высокая", next_step: "позвонить" } }
++  ]);
++  assert.match(html, /Горячие лиды \(1\)/);
++  assert.match(html, /82/);
++  assert.match(html, /Игорь/);
++  assert.match(html, /позвонить/);
++});
++
++test("renderHotHtml: экранирует HTML в данных лида (XSS)", () => {
++  const html = renderHotHtml([
++    { name: "<script>alert(1)</script>", phone: "x", ai_qual_score: 50, ai_qual_profile: {} }
++  ]);
++  assert.doesNotMatch(html, /<script>alert/);
++  assert.match(html, /&lt;script&gt;/);
++});
++
++test("renderHotHtml: пустой список — валидная таблица", () => {
++  const html = renderHotHtml([]);
++  assert.match(html, /Горячие лиды \(0\)/);
++  assert.match(html, /<\/table>/);
++});
++
++test("isStuck: клиент написал последним и давно → застрял", () => {
++  const now = Date.parse("2026-06-27T14:00:00Z");
++  const last = { direction: "in", created_at: "2026-06-27T08:00:00Z" }; // 6ч назад
++  assert.equal(isStuck(last, { ai_qual_score: 70 }, { minHours: 4, minScore: 60, now }), true);
++});
++
++test("isStuck: менеджер ответил последним → не застрял", () => {
++  const now = Date.parse("2026-06-27T14:00:00Z");
++  const last = { direction: "out", created_at: "2026-06-27T08:00:00Z" };
++  assert.equal(isStuck(last, { ai_qual_score: 70 }, { minHours: 4, minScore: 60, now }), false);
++});
++
++test("isStuck: ответа ждут недолго → не застрял", () => {
++  const now = Date.parse("2026-06-27T14:00:00Z");
++  const last = { direction: "in", created_at: "2026-06-27T13:30:00Z" }; // 30 мин
++  assert.equal(isStuck(last, { ai_qual_score: 70 }, { minHours: 4, minScore: 60, now }), false);
++});
++
++test("isStuck: холодный лид → не застрял (не важен)", () => {
++  const now = Date.parse("2026-06-27T14:00:00Z");
++  const last = { direction: "in", created_at: "2026-06-27T08:00:00Z" };
++  assert.equal(isStuck(last, { ai_qual_score: 30 }, { minHours: 4, minScore: 60, now }), false);
++});
++
++test("parseQualification: новая рубрика — category и next_step", () => {
++  const q = parseQualification({
++    score: 80, budget: "высокий", urgency: "высокая", niche: "кабель",
++    category: "кабель", readiness: "горячий", summary: "B2B", next_step: "выставить КП"
++  });
++  assert.equal(q.profile.category, "кабель");
++  assert.equal(q.profile.next_step, "выставить КП");
++});
++
++test("parseQualification: новые поля по умолчанию заполнены", () => {
++  const q = parseQualification({ score: 50 });
++  assert.equal(q.profile.category, "не определено");
++  assert.equal(q.profile.next_step, "");
++});
+-- 
+2.43.0
+
