@@ -4,6 +4,7 @@ import { handleMessage } from "./handlers/router.js";
 import { sendMessage } from "./whatsapp.js";
 import { processDueFollowups } from "./handlers/followup.js";
 import { processQualifications } from "./handlers/qualify.js";
+import { runWatchdog } from "./handlers/watchdog.js";
 import { getOrders, isDbReady } from "./db.js";
 
 const app = express();
@@ -100,9 +101,26 @@ app.listen(PORT, () => {
   } else if (isDbReady()) {
     console.log("ИИ-квалификация лидов ВЫКЛ (QUAL_ENABLED!=1 или нет ANTHROPIC_API_KEY).");
   }
+
+  // Агент-сторож: реже, чем поллер; чинит пропуски, устаревшие и сомнительные
+  // оценки, мониторит здоровье. По умолчанию ВЫКЛ (WATCHDOG_ENABLED=1).
+  if (isDbReady() && process.env.ANTHROPIC_API_KEY && isEnabled("WATCHDOG_ENABLED")) {
+    const wdInterval = Number(process.env.WATCHDOG_INTERVAL_MS) || 60 * 60 * 1000;
+    console.log(`Агент-сторож ВКЛ: каждые ${wdInterval}мс.`);
+    const wdTick = () => runWatchdog().catch(err =>
+      console.error("Ошибка сторожа:", err));
+    setInterval(wdTick, wdInterval);
+    // Первый прогон — с небольшой задержкой, чтобы не конкурировать со стартовым
+    // прогоном поллера квалификации.
+    setTimeout(wdTick, 30 * 1000);
+  }
 });
 
-function isQualEnabled() {
-  const v = String(process.env.QUAL_ENABLED || "").toLowerCase();
+function isEnabled(name) {
+  const v = String(process.env[name] || "").toLowerCase();
   return v === "1" || v === "true" || v === "yes";
+}
+
+function isQualEnabled() {
+  return isEnabled("QUAL_ENABLED");
 }

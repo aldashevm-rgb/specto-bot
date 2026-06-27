@@ -20,17 +20,90 @@ function headers(extra = {}) {
   };
 }
 
-async function rest(path, options = {}) {
-  const res = await fetch(`${BASE}${path}`, options);
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Supabase ${res.status}: ${text}`);
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// Универсальный ретрай с экспоненциальной задержкой. Используется и поллерами,
+// и сторожем. retryOn решает, стоит ли повторять конкретную ошибку.
+export async function withRetry(fn, opts = {}) {
+  const {
+    retries = 3,
+    baseMs = 500,
+    label = "op",
+    retryOn = () => true,
+    onWait = (msg) => console.warn(msg),
+    wait = sleep
+  } = opts;
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt === retries || !retryOn(err)) break;
+      const delay = baseMs * 2 ** attempt;
+      onWait(`[retry] ${label}: попытка ${attempt + 1} не удалась (${err.message}). Жду ${delay}мс`);
+      await wait(delay);
+    }
   }
-  return res;
+  throw lastErr;
+}
+
+async function rest(path, options = {}) {
+  const method = (options.method || "GET").toUpperCase();
+  // Ретраим только идемпотентные запросы: GET (чтение) и PATCH (обновление по id).
+  // POST (вставка) НЕ ретраим — иначе при обрыве ответа можно задвоить запись.
+  const idempotent = method === "GET" || method === "PATCH";
+  return withRetry(
+    async () => {
+      const res = await fetch(`${BASE}${path}`, options);
+      if (!res.ok) {
+        const text = await res.text();
+        const err = new Error(`Supabase ${res.status}: ${text}`);
+        err.status = res.status;
+        throw err;
+      }
+      return res;
+    },
+    {
+      retries: idempotent ? 3 : 0,
+      label: `Supabase ${method} ${path.split("?")[0]}`,
+      // Повторяем только временные сбои: сеть (нет status) / 5xx / 429.
+      retryOn: (err) => !err.status || err.status >= 500 || err.status === 429
+    }
+  );
 }
 
 export function isDbReady() {
   return ready;
+}
+
+// Дешёвая проверка живости БД для сторожа. true — Supabase отвечает.
+export async function healthPing() {
+  if (!ready) return false;
+  try {
+    await rest("/leads?select=id&limit=1", { headers: headers() });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Время последнего сообщения в чате (ISO) или null. Нужно сторожу, чтобы
+// понять, появилась ли новая переписка после квалификации (устаревание).
+export async function getLastMessageAt(chatId) {
+  if (!ready) return null;
+  try {
+    const res = await rest(
+      `/whatsapp_messages?chat_id=eq.${encodeURIComponent(chatId)}` +
+      `&select=created_at&order=created_at.desc&limit=1`,
+      { headers: headers() }
+    );
+    const rows = await res.json();
+    return rows[0]?.created_at || null;
+  } catch (err) {
+    console.error("getLastMessageAt error:", err.message);
+    return null;
+  }
 }
 
 // --- Лиды (specto_bot_orders) ---
@@ -196,7 +269,7 @@ export async function getLeadForPhone(phoneNorm, projectId = null) {
   if (!ready || !phoneNorm) return null;
   try {
     let path =
-      `/leads?select=id,name,project_id,ai_qual_at,ai_qual_score` +
+      `/leads?select=id,name,project_id,ai_qual_at,ai_qual_score,ai_qual_profile` +
       `&phone_norm=eq.${encodeURIComponent(phoneNorm)}`;
     if (projectId) path += `&project_id=eq.${encodeURIComponent(projectId)}`;
     path += "&order=created_at.desc&limit=1";

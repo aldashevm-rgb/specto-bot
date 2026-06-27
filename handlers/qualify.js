@@ -2,8 +2,10 @@ import {
   getRecentWaChats,
   getLeadForPhone,
   getConversation,
+  getLastMessageAt,
   saveQualification,
-  isDbReady
+  isDbReady,
+  withRetry
 } from "../db.js";
 
 // ИИ-квалификация лидов по переписке в WhatsApp.
@@ -120,6 +122,24 @@ export function parseQualification(input) {
   return { score, profile };
 }
 
+// Эвристика «сомнительной» оценки — для самопроверки качества сторожем.
+// lead: { ai_qual_score, ai_qual_profile }. true → стоит переоценить.
+export function isSuspicious(lead) {
+  if (!lead) return false;
+  const score = lead.ai_qual_score;
+  const p = lead.ai_qual_profile || {};
+  if (score === null || score === undefined) return true;
+  const readiness = String(p.readiness || "").toLowerCase();
+  // Противоречие: «горячий», но низкий балл — или «холодный», но высокий.
+  if (readiness.includes("горяч") && score < 40) return true;
+  if (readiness.includes("холод") && score > 60) return true;
+  // Пустое резюме — оценка без обоснования.
+  if (!p.summary || !String(p.summary).trim()) return true;
+  // Высокий балл при неизвестной нише — подозрительно.
+  if (String(p.niche || "").toLowerCase().includes("неизвестно") && score >= 65) return true;
+  return false;
+}
+
 // --- Вызов Claude ---
 
 // Возвращает { score, profile } или null при ошибке/пустой переписке.
@@ -134,36 +154,47 @@ export async function qualifyConversation(messages) {
   if (!transcript) return null;
 
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": API_KEY,
-        "anthropic-version": "2023-06-01"
+    // Ретраим временные сбои Claude (429/5xx/сеть) — меньше ложных ai_failed.
+    const data = await withRetry(
+      async () => {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": API_KEY,
+            "anthropic-version": "2023-06-01"
+          },
+          body: JSON.stringify({
+            model: MODEL,
+            max_tokens: 1024,
+            system: SYSTEM_PROMPT,
+            tools: [QUAL_TOOL],
+            tool_choice: { type: "tool", name: "record_qualification" },
+            messages: [{ role: "user", content: `Переписка с клиентом:\n\n${transcript}` }]
+          })
+        });
+        if (!res.ok) {
+          const errText = await res.text();
+          const err = new Error(`Claude ${res.status}: ${errText}`);
+          err.status = res.status;
+          throw err;
+        }
+        return res.json();
       },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 1024,
-        system: SYSTEM_PROMPT,
-        tools: [QUAL_TOOL],
-        tool_choice: { type: "tool", name: "record_qualification" },
-        messages: [{ role: "user", content: `Переписка с клиентом:\n\n${transcript}` }]
-      })
-    });
+      {
+        retries: 2,
+        baseMs: 800,
+        label: "Claude qualify",
+        retryOn: (err) => !err.status || err.status >= 500 || err.status === 429
+      }
+    );
 
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error("Claude qualify error:", res.status, errText);
-      return null;
-    }
-
-    const data = await res.json();
     const toolUse = Array.isArray(data?.content)
       ? data.content.find(b => b.type === "tool_use" && b.name === "record_qualification")
       : null;
     return parseQualification(toolUse?.input);
   } catch (err) {
-    console.error("Ошибка запроса к Claude (qualify):", err);
+    console.error("Ошибка запроса к Claude (qualify):", err.message);
     return null;
   }
 }
@@ -175,17 +206,22 @@ export async function qualifyConversation(messages) {
 //   sinceIso   — окно по времени для отбора чатов (null = все, для бэкфилла)
 //   limit      — максимум лидов на один прогон (по умолчанию без ограничения)
 //   dryRun     — не писать в БД, только вернуть результат
-//   restale    — переоценивать даже уже квалифицированные лиды
-//   onlyChats  — массив chat_id: обработать только их (для теста на 1–2 лидах)
-//   log        — функция логирования (по умолчанию console.log)
-// Возвращает массив { chat_id, lead_id, status, score, profile }.
+//   restale        — принудительно переоценивать ВСЕ уже квалифицированные лиды
+//   restaleIfNewer — переоценивать лид, если в чате появились сообщения позже ai_qual_at
+//   qcSuspicious   — переоценивать лид, если оценка выглядит сомнительной (isSuspicious)
+//   onlyChats      — массив chat_id: обработать только их (для теста на 1–2 лидах)
+//   log            — функция логирования (по умолчанию console.log)
+// Возвращает массив { chat_id, lead_id, status, reason, score, profile }.
 // status: qualified | dry_run | no_lead | already | no_signal | ai_failed
+// reason: missing | restale | stale | qc (почему лид был переоценён)
 export async function processQualifications(opts = {}) {
   const {
     sinceIso = null,
     limit = Infinity,
     dryRun = false,
     restale = false,
+    restaleIfNewer = false,
+    qcSuspicious = false,
     onlyChats = null,
     log = console.log
   } = opts;
@@ -216,20 +252,30 @@ export async function processQualifications(opts = {}) {
       continue;
     }
 
-    if (lead.ai_qual_at && !restale) {
+    // Решаем, нужно ли (пере)оценивать этот лид и почему.
+    let reason = null;
+    if (!lead.ai_qual_at) reason = "missing";
+    else if (restale) reason = "restale";
+    else if (qcSuspicious && isSuspicious(lead)) reason = "qc";
+    else if (restaleIfNewer) {
+      const lastAt = await getLastMessageAt(chat.chat_id);
+      if (lastAt && new Date(lastAt) > new Date(lead.ai_qual_at)) reason = "stale";
+    }
+
+    if (!reason) {
       results.push({ chat_id: chat.chat_id, lead_id: lead.id, status: "already" });
       continue;
     }
 
     const conversation = await getConversation(chat.chat_id);
     if (!hasEnoughSignal(conversation)) {
-      results.push({ chat_id: chat.chat_id, lead_id: lead.id, status: "no_signal" });
+      results.push({ chat_id: chat.chat_id, lead_id: lead.id, status: "no_signal", reason });
       continue;
     }
 
     const qual = await qualifyConversation(conversation);
     if (!qual) {
-      results.push({ chat_id: chat.chat_id, lead_id: lead.id, status: "ai_failed" });
+      results.push({ chat_id: chat.chat_id, lead_id: lead.id, status: "ai_failed", reason });
       continue;
     }
 
@@ -241,10 +287,11 @@ export async function processQualifications(opts = {}) {
         lead_id: lead.id,
         lead_name: lead.name,
         status: "dry_run",
+        reason,
         score: qual.score,
         profile: qual.profile
       });
-      log(`[dry-run] ${lead.name || lead.id}: score=${qual.score} (${qual.profile.readiness})`);
+      log(`[dry-run] ${lead.name || lead.id}: score=${qual.score} (${qual.profile.readiness}) [${reason}]`);
       continue;
     }
 
@@ -254,10 +301,11 @@ export async function processQualifications(opts = {}) {
       lead_id: lead.id,
       lead_name: lead.name,
       status: ok ? "qualified" : "ai_failed",
+      reason,
       score: qual.score,
       profile: qual.profile
     });
-    if (ok) log(`✓ ${lead.name || lead.id}: score=${qual.score} (${qual.profile.readiness})`);
+    if (ok) log(`✓ ${lead.name || lead.id}: score=${qual.score} (${qual.profile.readiness}) [${reason}]`);
   }
 
   return results;
