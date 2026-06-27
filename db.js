@@ -470,6 +470,40 @@ export async function setAutomationActive(organizationId, code, active) {
   }
 }
 
+// --- Аналитика эффективности плейбуков (вьюхи) ---
+
+// Метрики плейбуков по проектам (вьюха playbook_metrics). Только с непустым
+// объёмом лидов, по убыванию.
+export async function getPlaybookMetrics() {
+  if (!ready) return [];
+  try {
+    const res = await rest(
+      "/playbook_metrics?leads=gt.0&select=*&order=leads.desc",
+      { headers: headers() }
+    );
+    return await res.json();
+  } catch (err) {
+    console.error("getPlaybookMetrics error:", err.message);
+    return [];
+  }
+}
+
+// Влияние автоматизаций на конверсию (вьюха automation_impact): строки по парам
+// (model, automation, is_active) с конверсией и объёмом.
+export async function getAutomationImpact() {
+  if (!ready) return [];
+  try {
+    const res = await rest(
+      "/automation_impact?select=*",
+      { headers: headers() }
+    );
+    return await res.json();
+  } catch (err) {
+    console.error("getAutomationImpact error:", err.message);
+    return [];
+  }
+}
+
 // --- Авто-назначение менеджеров ---
 
 // Активные менеджеры проекта (role=manager). Возвращает массив имён (full_name).

@@ -1,4 +1,5 @@
-import { getAllQualified } from "../db.js";
+import { getAllQualified, getPlaybookMetrics, getAutomationImpact } from "../db.js";
+import { analyzeImpact, formatPlaybookReport } from "./playbookMetrics.js";
 
 // Ежедневная сводка по квалифицированным лидам: сколько всего, сколько горячих,
 // сколько новых за сутки, разбивка по рубрикам и топ-5. Чистые функции
@@ -96,7 +97,23 @@ export async function maybeSendDailyDigest({
 
   const leads = await getAllQualified();
   const digest = buildDigest(leads, now);
-  if (alert) await alert(formatDigest(digest));
+  let text = formatDigest(digest);
+
+  // Раз в неделю (по умолчанию понедельник UTC) добавляем секцию эффективности
+  // плейбуков — чтобы не слать тяжёлую аналитику каждый день.
+  const weeklyDay = Number.isFinite(Number(process.env.DIGEST_PLAYBOOK_DAY))
+    ? Number(process.env.DIGEST_PLAYBOOK_DAY)
+    : 1;
+  if (d.getUTCDay() === weeklyDay) {
+    try {
+      const [metrics, impactRows] = await Promise.all([getPlaybookMetrics(), getAutomationImpact()]);
+      text += "\n\n" + formatPlaybookReport(metrics, analyzeImpact(impactRows));
+    } catch (err) {
+      log(`Сводка: секция плейбуков пропущена (${err.message}).`);
+    }
+  }
+
+  if (alert) await alert(text);
 
   lastDigestDay = day;
   log(`Сводка: отправлена за ${day} (всего=${digest.total}, горячих=${digest.hot}, новых=${digest.new24h}).`);
