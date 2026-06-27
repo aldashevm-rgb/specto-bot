@@ -1,5 +1,11 @@
 import { processQualifications, phoneLast10 } from "./qualify.js";
+import { autoAssignHotLeads } from "./assign.js";
 import { isDbReady, healthPing, getRecentWaChats, getLastMessage, getLeadForPhone } from "../db.js";
+
+function envEnabled(name) {
+  const v = String(process.env[name] || "").toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
 
 // Агент-сторож: следит за здоровьем системы квалификации и сам «ремонтирует» её.
 // За один прогон он:
@@ -150,9 +156,19 @@ export async function runWatchdog(opts = {}) {
     );
   }
 
+  // 6. Авто-назначение горячих ничьих лидов (по умолчанию ВЫКЛ — AUTOASSIGN_ENABLED=1).
+  if (envEnabled("AUTOASSIGN_ENABLED")) {
+    const assigned = await autoAssignHotLeads({ log });
+    report.assigned = assigned.length;
+    if (assigned.length) {
+      const lines = assigned.slice(0, 10).map(a => `• ${a.name || a.lead_id} (${a.score}) → ${a.assignee}`);
+      await alert(`👤 Сторож: назначено ${assigned.length} горяч. лид(ов):\n` + lines.join("\n"));
+    }
+  }
+
   log(
     `Сторож: вылечено=${report.healed} (missing=${report.missing}, stale=${report.stale}, qc=${report.qc}), ` +
-    `сбоев=${report.failed}, застряло=${report.stuck}.`
+    `сбоев=${report.failed}, застряло=${report.stuck}, назначено=${report.assigned || 0}.`
   );
   return report;
 }

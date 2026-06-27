@@ -354,3 +354,76 @@ export async function getLastMessage(chatId) {
     return null;
   }
 }
+
+// --- Авто-назначение менеджеров ---
+
+// Активные менеджеры проекта (role=manager). Возвращает массив имён (full_name).
+export async function getActiveManagers(projectId) {
+  if (!ready || !projectId) return [];
+  try {
+    const res = await rest(
+      `/profiles?select=full_name&role=eq.manager&is_active=eq.true` +
+      `&project_id=eq.${encodeURIComponent(projectId)}`,
+      { headers: headers() }
+    );
+    const rows = await res.json();
+    return rows.map(r => r.full_name).filter(Boolean);
+  } catch (err) {
+    console.error("getActiveManagers error:", err.message);
+    return [];
+  }
+}
+
+// Сколько лидов сейчас на менеджере в проекте (для стратегии «наименее загруженному»).
+export async function countLeadsByAssignee(projectId, assignee) {
+  if (!ready) return 0;
+  try {
+    const res = await rest(
+      `/leads?project_id=eq.${encodeURIComponent(projectId)}` +
+      `&assignee=eq.${encodeURIComponent(assignee)}&select=id&limit=1`,
+      { headers: headers({ Prefer: "count=exact" }) }
+    );
+    const range = res.headers.get("content-range");
+    if (range && range.includes("/")) {
+      const total = parseInt(range.split("/")[1], 10);
+      if (!Number.isNaN(total)) return total;
+    }
+    return (await res.json()).length;
+  } catch (err) {
+    console.error("countLeadsByAssignee error:", err.message);
+    return 0;
+  }
+}
+
+// Горячие лиды в корзине «director»/пусто (ничьи). minScore — порог.
+export async function getUnassignedHotLeads(minScore = 60) {
+  if (!ready) return [];
+  try {
+    const res = await rest(
+      `/leads?select=id,name,project_id,ai_qual_score` +
+      `&ai_qual_score=gte.${minScore}` +
+      `&or=(assignee.eq.director,assignee.is.null)` +
+      `&order=ai_qual_score.desc`,
+      { headers: headers() }
+    );
+    return await res.json();
+  } catch (err) {
+    console.error("getUnassignedHotLeads error:", err.message);
+    return [];
+  }
+}
+
+export async function setAssignee(leadId, assignee) {
+  if (!ready) return false;
+  try {
+    await rest(`/leads?id=eq.${encodeURIComponent(leadId)}`, {
+      method: "PATCH",
+      headers: headers({ Prefer: "return=minimal" }),
+      body: JSON.stringify({ assignee })
+    });
+    return true;
+  } catch (err) {
+    console.error("setAssignee error:", err.message);
+    return false;
+  }
+}
