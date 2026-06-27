@@ -317,3 +317,40 @@ export async function saveQualification(leadId, score, profile) {
     return false;
   }
 }
+
+// --- Дашборд / сторож ---
+
+// Горячие (квалифицированные) лиды, отсортированные по баллу. Для дашборда /hot.
+export async function getHotLeads({ limit = 50, minScore = 0, projectId = null } = {}) {
+  if (!ready) return [];
+  try {
+    let path =
+      `/leads?select=id,name,phone,project_id,ai_qual_score,ai_qual_profile,ai_qual_at` +
+      `&ai_qual_at=not.is.null&ai_qual_score=gte.${minScore}` +
+      `&order=ai_qual_score.desc&limit=${limit}`;
+    if (projectId) path += `&project_id=eq.${encodeURIComponent(projectId)}`;
+    const res = await rest(path, { headers: headers() });
+    return await res.json();
+  } catch (err) {
+    console.error("getHotLeads error:", err.message);
+    return [];
+  }
+}
+
+// Последнее сообщение в чате: { direction, created_at } или null.
+// Нужно сторожу, чтобы найти «застрявшие» лиды (последнее слово за клиентом).
+export async function getLastMessage(chatId) {
+  if (!ready) return null;
+  try {
+    const res = await rest(
+      `/whatsapp_messages?chat_id=eq.${encodeURIComponent(chatId)}` +
+      `&select=direction,created_at&order=created_at.desc&limit=1`,
+      { headers: headers() }
+    );
+    const rows = await res.json();
+    return rows[0] || null;
+  } catch (err) {
+    console.error("getLastMessage error:", err.message);
+    return null;
+  }
+}

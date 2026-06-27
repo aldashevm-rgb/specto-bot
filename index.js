@@ -5,7 +5,8 @@ import { sendMessage } from "./whatsapp.js";
 import { processDueFollowups } from "./handlers/followup.js";
 import { processQualifications } from "./handlers/qualify.js";
 import { runWatchdog } from "./handlers/watchdog.js";
-import { getOrders, isDbReady } from "./db.js";
+import { renderHotHtml } from "./handlers/dashboard.js";
+import { getOrders, getHotLeads, isDbReady } from "./db.js";
 
 const app = express();
 // Сохраняем сырое тело — нужно для проверки HMAC-подписи WhatsApp.
@@ -67,6 +68,22 @@ app.get("/orders", async (req, res) => {
     return res.sendStatus(401);
   }
   res.json(await getOrders());
+});
+
+// Дашборд горячих лидов. По умолчанию — HTML-таблица (открыть в браузере),
+// ?format=json — данные. Защита тем же ORDERS_API_KEY (если задан): ключ можно
+// передать заголовком Authorization: Bearer ... или ?key=...
+app.get("/hot", async (req, res) => {
+  if (ORDERS_API_KEY) {
+    const authed = req.get("authorization") === `Bearer ${ORDERS_API_KEY}` || req.query.key === ORDERS_API_KEY;
+    if (!authed) return res.sendStatus(401);
+  }
+  const minScore = Number(req.query.min) || 0;
+  const limit = Math.min(Number(req.query.limit) || 50, 500);
+  const leads = await getHotLeads({ minScore, limit });
+  const wantsJson = req.query.format === "json" || (req.get("accept") || "").includes("application/json");
+  if (wantsJson) return res.json(leads);
+  res.set("Content-Type", "text/html; charset=utf-8").send(renderHotHtml(leads));
 });
 
 const PORT = process.env.PORT || 3000;
