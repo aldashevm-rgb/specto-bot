@@ -1,0 +1,629 @@
+From f7932d20a8d015984fbba935b8ee4027e8e5b82b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 27 Jun 2026 02:47:16 +0000
+Subject: [PATCH] Add AI lead qualification from WhatsApp conversations
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Fills the previously-empty leads.ai_qual_score / ai_qual_profile /
+ai_qual_at columns by scoring real WhatsApp conversations with Claude.
+
+The feature operates on the CRM tables (whatsapp_messages + leads), not
+the bot's own specto_bot_* tables — production conversations live in
+whatsapp_messages (chat_id "<phone>@c.us", direction in/out) and leads
+join by phone_norm (last 10 digits of the number) within a project_id.
+
+- db.js: REST helpers getRecentWaChats / getLeadForPhone /
+  getConversation / saveQualification (raw fetch, Node 18 friendly).
+- handlers/qualify.js: builds a transcript, forces a structured result
+  from Claude via a tool schema (score 0-100 + budget/urgency/niche/
+  readiness/summary/signals), writes it to the lead. Orchestrator
+  supports dry-run, per-chat targeting and re-qualification.
+- index.js: optional poller, OFF by default behind QUAL_ENABLED. Scans
+  recent chats each interval and qualifies not-yet-scored leads.
+- scripts/qualify.js: CLI for backfill and safe --dry-run testing.
+- tests for the pure logic (phone/transcript/parse/clamp).
+
+Poller stays disabled until explicitly enabled in the deploy env.
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WhWkrr6qa6rRytE2dZhGqE
+---
+ .env.example         |  10 ++
+ db.js                |  89 +++++++++++++++
+ handlers/qualify.js  | 264 +++++++++++++++++++++++++++++++++++++++++++
+ index.js             |  27 ++++-
+ package.json         |   3 +-
+ scripts/qualify.js   |  53 +++++++++
+ test/qualify.test.js |  68 +++++++++++
+ 7 files changed, 512 insertions(+), 2 deletions(-)
+ create mode 100644 handlers/qualify.js
+ create mode 100644 scripts/qualify.js
+ create mode 100644 test/qualify.test.js
+
+diff --git a/.env.example b/.env.example
+index 1eca924..ee5037f 100644
+--- a/.env.example
++++ b/.env.example
+@@ -14,6 +14,16 @@ PHONE_NUMBER_ID=1234567890
+ VERIFY_TOKEN=my_bot_token_123
+ WHATSAPP_APP_SECRET=...
+ 
++# --- ИИ-квалификация лидов (leads.ai_qual_*) ---
++# Поллер выключен по умолчанию. Включить: QUAL_ENABLED=1
++QUAL_ENABLED=0
++# Период прогона поллера, мс (по умолчанию 5 минут)
++QUAL_INTERVAL_MS=300000
++# Окно отбора чатов: сколько минут назад смотреть whatsapp_messages (по умолчанию 60)
++QUAL_LOOKBACK_MIN=60
++# Максимум лидов за один прогон поллера (по умолчанию 10)
++QUAL_BATCH=10
++
+ # --- Прочее ---
+ ORDERS_API_KEY=
+ PORT=3000
+\ No newline at end of file
+diff --git a/db.js b/db.js
+index 0dabef2..101bfad 100644
+--- a/db.js
++++ b/db.js
+@@ -154,4 +154,93 @@ export async function getDueFollowups(nowIso, limit = 50) {
+     console.error("getDueFollowups error:", err.message);
+     return [];
+   }
++}
++
++// --- ИИ-квалификация лидов (таблицы CRM: whatsapp_messages + leads) ---
++//
++// Внимание: это НЕ таблицы бота (specto_bot_*). Квалификация работает с боевыми
++// данными CRM: переписка лежит в whatsapp_messages (chat_id вида "7701...@c.us",
++// direction in/out), лиды — в leads. Связь: leads.phone_norm = последние 10 цифр
++// номера из chat_id, в рамках одного project_id.
++
++// Уникальные WhatsApp-чаты (chat_id + project_id), по которым была переписка.
++// sinceIso — брать только чаты с сообщениями не раньше этого момента (для поллера);
++// null — все чаты (для бэкфилла). msgLimit ограничивает число просканированных строк.
++export async function getRecentWaChats({ sinceIso = null, msgLimit = 5000 } = {}) {
++  if (!ready) return [];
++  try {
++    let path =
++      "/whatsapp_messages?select=chat_id,project_id,created_at" +
++      "&order=created_at.desc" +
++      `&limit=${msgLimit}`;
++    if (sinceIso) path += `&created_at=gte.${encodeURIComponent(sinceIso)}`;
++    const res = await rest(path, { headers: headers() });
++    const rows = await res.json();
++    const seen = new Set();
++    const chats = [];
++    for (const r of rows) {
++      if (!r.chat_id || seen.has(r.chat_id)) continue;
++      seen.add(r.chat_id);
++      chats.push({ chat_id: r.chat_id, project_id: r.project_id });
++    }
++    return chats;
++  } catch (err) {
++    console.error("getRecentWaChats error:", err.message);
++    return [];
++  }
++}
++
++// Самый свежий лид с данным phone_norm в рамках project_id (или без привязки к проекту,
++// если projectId не задан). Возвращает объект лида или null.
++export async function getLeadForPhone(phoneNorm, projectId = null) {
++  if (!ready || !phoneNorm) return null;
++  try {
++    let path =
++      `/leads?select=id,name,project_id,ai_qual_at,ai_qual_score` +
++      `&phone_norm=eq.${encodeURIComponent(phoneNorm)}`;
++    if (projectId) path += `&project_id=eq.${encodeURIComponent(projectId)}`;
++    path += "&order=created_at.desc&limit=1";
++    const res = await rest(path, { headers: headers() });
++    const rows = await res.json();
++    return rows[0] || null;
++  } catch (err) {
++    console.error("getLeadForPhone error:", err.message);
++    return null;
++  }
++}
++
++// Переписка по чату в хронологическом порядке: [{ direction, text, created_at }].
++export async function getConversation(chatId, limit = 200) {
++  if (!ready) return [];
++  try {
++    const res = await rest(
++      `/whatsapp_messages?chat_id=eq.${encodeURIComponent(chatId)}` +
++      `&select=direction,text,created_at&order=created_at.asc&limit=${limit}`,
++      { headers: headers() }
++    );
++    return await res.json();
++  } catch (err) {
++    console.error("getConversation error:", err.message);
++    return [];
++  }
++}
++
++// Записать результат квалификации в лид. score — int 0..100, profile — объект (jsonb).
++export async function saveQualification(leadId, score, profile) {
++  if (!ready) return false;
++  try {
++    await rest(`/leads?id=eq.${encodeURIComponent(leadId)}`, {
++      method: "PATCH",
++      headers: headers({ Prefer: "return=minimal" }),
++      body: JSON.stringify({
++        ai_qual_score: score,
++        ai_qual_profile: profile,
++        ai_qual_at: new Date().toISOString()
++      })
++    });
++    return true;
++  } catch (err) {
++    console.error("saveQualification error:", err.message);
++    return false;
++  }
+ }
+\ No newline at end of file
+diff --git a/handlers/qualify.js b/handlers/qualify.js
+new file mode 100644
+index 0000000..688f4d7
+--- /dev/null
++++ b/handlers/qualify.js
+@@ -0,0 +1,264 @@
++import {
++  getRecentWaChats,
++  getLeadForPhone,
++  getConversation,
++  saveQualification,
++  isDbReady
++} from "../db.js";
++
++// ИИ-квалификация лидов по переписке в WhatsApp.
++//
++// Поток: берём чаты из whatsapp_messages → находим лид (по последним 10 цифрам
++// номера = leads.phone_norm в рамках project_id) → отправляем переписку в Claude →
++// получаем оценку 0–100 и структурный профиль → пишем в leads.ai_qual_*.
++
++const MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-4-6";
++const API_KEY = process.env.ANTHROPIC_API_KEY;
++
++const SYSTEM_PROMPT =
++  `Ты — аналитик отдела продаж компании SPECTO. Тебе дают переписку менеджера ` +
++  `с потенциальным клиентом в WhatsApp. Оцени лида: насколько он близок к покупке ` +
++  `и что мы о нём знаем. Опирайся ТОЛЬКО на факты из переписки — не выдумывай. ` +
++  `Если данных по полю нет, пиши "неизвестно". Отвечай строго вызовом инструмента ` +
++  `record_qualification, без текста.`;
++
++// Инструмент с input_schema — заставляет модель вернуть структурированный JSON
++// (tool_choice ниже форсирует именно его), это надёжнее парсинга текста.
++export const QUAL_TOOL = {
++  name: "record_qualification",
++  description: "Записать оценку квалификации лида по переписке в WhatsApp.",
++  input_schema: {
++    type: "object",
++    properties: {
++      score: {
++        type: "integer",
++        description:
++          "Готовность к покупке от 0 до 100. 0 — холодный/отказ, " +
++          "50 — интересуется, но сомневается, 100 — готов покупать сейчас."
++      },
++      budget: {
++        type: "string",
++        description:
++          "Оценка бюджета клиента: неизвестно | низкий | средний | высокий. " +
++          "Если в переписке есть конкретные суммы — добавь их."
++      },
++      urgency: {
++        type: "string",
++        description: "Срочность потребности: низкая | средняя | высокая."
++      },
++      niche: {
++        type: "string",
++        description:
++          "Ниша/сфера бизнеса клиента или направление, которым он интересуется."
++      },
++      readiness: {
++        type: "string",
++        description: "Готовность к покупке одним словом: холодный | тёплый | горячий."
++      },
++      summary: {
++        type: "string",
++        description: "1–2 предложения: ключевой вывод о лиде и следующий шаг."
++      },
++      signals: {
++        type: "array",
++        items: { type: "string" },
++        description: "Короткие факты-сигналы из переписки, повлиявшие на оценку."
++      }
++    },
++    required: ["score", "budget", "urgency", "niche", "readiness", "summary"]
++  }
++};
++
++// --- Чистые функции (тестируются без сети) ---
++
++// Последние 10 цифр номера из chat_id ("77012424492@c.us" → "7012424492").
++// Это и есть формат leads.phone_norm. null, если цифр < 10.
++export function phoneLast10(chatId) {
++  if (!chatId) return null;
++  const digits = String(chatId).split("@")[0].replace(/\D/g, "");
++  if (digits.length < 10) return null;
++  return digits.slice(-10);
++}
++
++// Переписка → текст для модели. in = клиент, out = менеджер.
++export function buildTranscript(messages = []) {
++  const lines = [];
++  for (const m of messages) {
++    const text = (m && m.text ? String(m.text) : "").trim();
++    if (!text) continue;
++    const who = m.direction === "in" ? "Клиент" : "Менеджер";
++    lines.push(`${who}: ${text}`);
++  }
++  return lines.join("\n");
++}
++
++// Достаточно ли в переписке сигнала, чтобы оценивать (есть реплики клиента).
++export function hasEnoughSignal(messages = []) {
++  const inbound = messages.filter(m => m && m.direction === "in" && m.text && m.text.trim());
++  return inbound.length >= 1;
++}
++
++export function clampScore(value) {
++  const n = Math.round(Number(value));
++  if (Number.isNaN(n)) return null;
++  return Math.max(0, Math.min(100, n));
++}
++
++// tool_use.input → { score, profile } или null, если score не распарсился.
++export function parseQualification(input) {
++  if (!input || typeof input !== "object") return null;
++  const score = clampScore(input.score);
++  if (score === null) return null;
++  const profile = {
++    budget: input.budget ?? "неизвестно",
++    urgency: input.urgency ?? "неизвестно",
++    niche: input.niche ?? "неизвестно",
++    readiness: input.readiness ?? "неизвестно",
++    summary: input.summary ?? "",
++    signals: Array.isArray(input.signals) ? input.signals : []
++  };
++  return { score, profile };
++}
++
++// --- Вызов Claude ---
++
++// Возвращает { score, profile } или null при ошибке/пустой переписке.
++export async function qualifyConversation(messages) {
++  if (!API_KEY) {
++    console.error("ANTHROPIC_API_KEY не задан — квалификация пропущена");
++    return null;
++  }
++  if (!hasEnoughSignal(messages)) return null;
++
++  const transcript = buildTranscript(messages);
++  if (!transcript) return null;
++
++  try {
++    const res = await fetch("https://api.anthropic.com/v1/messages", {
++      method: "POST",
++      headers: {
++        "Content-Type": "application/json",
++        "x-api-key": API_KEY,
++        "anthropic-version": "2023-06-01"
++      },
++      body: JSON.stringify({
++        model: MODEL,
++        max_tokens: 1024,
++        system: SYSTEM_PROMPT,
++        tools: [QUAL_TOOL],
++        tool_choice: { type: "tool", name: "record_qualification" },
++        messages: [{ role: "user", content: `Переписка с клиентом:\n\n${transcript}` }]
++      })
++    });
++
++    if (!res.ok) {
++      const errText = await res.text();
++      console.error("Claude qualify error:", res.status, errText);
++      return null;
++    }
++
++    const data = await res.json();
++    const toolUse = Array.isArray(data?.content)
++      ? data.content.find(b => b.type === "tool_use" && b.name === "record_qualification")
++      : null;
++    return parseQualification(toolUse?.input);
++  } catch (err) {
++    console.error("Ошибка запроса к Claude (qualify):", err);
++    return null;
++  }
++}
++
++// --- Оркестратор ---
++
++// Проходит по чатам, квалифицирует подходящие лиды и (если не dryRun) пишет в БД.
++// opts:
++//   sinceIso   — окно по времени для отбора чатов (null = все, для бэкфилла)
++//   limit      — максимум лидов на один прогон (по умолчанию без ограничения)
++//   dryRun     — не писать в БД, только вернуть результат
++//   restale    — переоценивать даже уже квалифицированные лиды
++//   onlyChats  — массив chat_id: обработать только их (для теста на 1–2 лидах)
++//   log        — функция логирования (по умолчанию console.log)
++// Возвращает массив { chat_id, lead_id, status, score, profile }.
++// status: qualified | dry_run | no_lead | already | no_signal | ai_failed
++export async function processQualifications(opts = {}) {
++  const {
++    sinceIso = null,
++    limit = Infinity,
++    dryRun = false,
++    restale = false,
++    onlyChats = null,
++    log = console.log
++  } = opts;
++
++  if (!isDbReady()) {
++    log("Квалификация: БД не настроена — пропуск.");
++    return [];
++  }
++
++  let chats = await getRecentWaChats({ sinceIso });
++  if (onlyChats && onlyChats.length) {
++    const want = new Set(onlyChats);
++    chats = chats.filter(c => want.has(c.chat_id));
++  }
++
++  const results = [];
++  let done = 0;
++
++  for (const chat of chats) {
++    if (done >= limit) break;
++
++    const phoneNorm = phoneLast10(chat.chat_id);
++    if (!phoneNorm) continue;
++
++    const lead = await getLeadForPhone(phoneNorm, chat.project_id);
++    if (!lead) {
++      results.push({ chat_id: chat.chat_id, status: "no_lead" });
++      continue;
++    }
++
++    if (lead.ai_qual_at && !restale) {
++      results.push({ chat_id: chat.chat_id, lead_id: lead.id, status: "already" });
++      continue;
++    }
++
++    const conversation = await getConversation(chat.chat_id);
++    if (!hasEnoughSignal(conversation)) {
++      results.push({ chat_id: chat.chat_id, lead_id: lead.id, status: "no_signal" });
++      continue;
++    }
++
++    const qual = await qualifyConversation(conversation);
++    if (!qual) {
++      results.push({ chat_id: chat.chat_id, lead_id: lead.id, status: "ai_failed" });
++      continue;
++    }
++
++    done += 1;
++
++    if (dryRun) {
++      results.push({
++        chat_id: chat.chat_id,
++        lead_id: lead.id,
++        lead_name: lead.name,
++        status: "dry_run",
++        score: qual.score,
++        profile: qual.profile
++      });
++      log(`[dry-run] ${lead.name || lead.id}: score=${qual.score} (${qual.profile.readiness})`);
++      continue;
++    }
++
++    const ok = await saveQualification(lead.id, qual.score, qual.profile);
++    results.push({
++      chat_id: chat.chat_id,
++      lead_id: lead.id,
++      lead_name: lead.name,
++      status: ok ? "qualified" : "ai_failed",
++      score: qual.score,
++      profile: qual.profile
++    });
++    if (ok) log(`✓ ${lead.name || lead.id}: score=${qual.score} (${qual.profile.readiness})`);
++  }
++
++  return results;
++}
+diff --git a/index.js b/index.js
+index f77b15c..5f4a38d 100644
+--- a/index.js
++++ b/index.js
+@@ -3,6 +3,7 @@ import crypto from "crypto";
+ import { handleMessage } from "./handlers/router.js";
+ import { sendMessage } from "./whatsapp.js";
+ import { processDueFollowups } from "./handlers/followup.js";
++import { processQualifications } from "./handlers/qualify.js";
+ import { getOrders, isDbReady } from "./db.js";
+ 
+ const app = express();
+@@ -80,4 +81,28 @@ app.listen(PORT, () => {
+     setInterval(tick, 60 * 1000);
+     tick();
+   }
+-});
+\ No newline at end of file
++
++  // Поллер ИИ-квалификации лидов (по умолчанию ВЫКЛ — включается QUAL_ENABLED=1).
++  // Берёт чаты whatsapp_messages за последнее окно, оценивает ещё не
++  // квалифицированные лиды и пишет результат в leads.ai_qual_*.
++  if (isDbReady() && process.env.ANTHROPIC_API_KEY && isQualEnabled()) {
++    const intervalMs = Number(process.env.QUAL_INTERVAL_MS) || 5 * 60 * 1000;
++    const lookbackMin = Number(process.env.QUAL_LOOKBACK_MIN) || 60;
++    const perTick = Number(process.env.QUAL_BATCH) || 10;
++    console.log(`ИИ-квалификация лидов ВКЛ: каждые ${intervalMs}мс, окно ${lookbackMin}мин, до ${perTick} лидов/прогон.`);
++    const qualTick = () => {
++      const sinceIso = new Date(Date.now() - lookbackMin * 60 * 1000).toISOString();
++      return processQualifications({ sinceIso, limit: perTick }).catch(err =>
++        console.error("Ошибка поллера квалификации:", err));
++    };
++    setInterval(qualTick, intervalMs);
++    qualTick();
++  } else if (isDbReady()) {
++    console.log("ИИ-квалификация лидов ВЫКЛ (QUAL_ENABLED!=1 или нет ANTHROPIC_API_KEY).");
++  }
++});
++
++function isQualEnabled() {
++  const v = String(process.env.QUAL_ENABLED || "").toLowerCase();
++  return v === "1" || v === "true" || v === "yes";
++}
+\ No newline at end of file
+diff --git a/package.json b/package.json
+index 1fdda20..a0d0178 100644
+--- a/package.json
++++ b/package.json
+@@ -7,7 +7,8 @@
+   },
+   "scripts": {
+     "start": "node index.js",
+-    "test": "node --test"
++    "test": "node --test",
++    "qualify": "node scripts/qualify.js"
+   },
+   "dependencies": {
+     "@supabase/supabase-js": "^2.45.4",
+diff --git a/scripts/qualify.js b/scripts/qualify.js
+new file mode 100644
+index 0000000..d43b8e6
+--- /dev/null
++++ b/scripts/qualify.js
+@@ -0,0 +1,53 @@
++// CLI для ИИ-квалификации лидов. Запускать в среде с ANTHROPIC_API_KEY,
++// SUPABASE_URL и SUPABASE_SERVICE_ROLE_KEY (как у бота).
++//
++// Примеры:
++//   node scripts/qualify.js --dry-run --limit=2
++//       прогнать 2 лида без записи в БД (безопасный тест)
++//   node scripts/qualify.js --dry-run --chat=77012424492@c.us
++//       только конкретный чат, без записи
++//   node scripts/qualify.js --limit=50
++//       квалифицировать и записать до 50 лидов
++//   node scripts/qualify.js --since=2026-06-01T00:00:00Z
++//       только чаты с сообщениями после указанного момента
++
++import { processQualifications } from "../handlers/qualify.js";
++
++function parseArgs(argv) {
++  const opts = { dryRun: false, restale: false };
++  for (const arg of argv) {
++    if (arg === "--dry-run") opts.dryRun = true;
++    else if (arg === "--restale") opts.restale = true;
++    else if (arg.startsWith("--limit=")) opts.limit = parseInt(arg.split("=")[1], 10);
++    else if (arg.startsWith("--since=")) opts.sinceIso = arg.split("=")[1];
++    else if (arg.startsWith("--chat=")) {
++      opts.onlyChats = (opts.onlyChats || []).concat(arg.split("=")[1].split(","));
++    }
++  }
++  return opts;
++}
++
++async function main() {
++  const opts = parseArgs(process.argv.slice(2));
++  console.log("Квалификация лидов:", JSON.stringify({ ...opts, log: undefined }));
++
++  const results = await processQualifications(opts);
++
++  const counts = {};
++  for (const r of results) counts[r.status] = (counts[r.status] || 0) + 1;
++
++  console.log("\n--- Итог ---");
++  console.log(JSON.stringify(counts, null, 2));
++
++  for (const r of results) {
++    if (r.score == null) continue;
++    console.log(`\n${r.lead_name || r.lead_id} [${r.chat_id}] — ${r.status}`);
++    console.log(`  score: ${r.score}`);
++    console.log(`  profile: ${JSON.stringify(r.profile, null, 2).replace(/\n/g, "\n  ")}`);
++  }
++}
++
++main().catch(err => {
++  console.error(err);
++  process.exit(1);
++});
+diff --git a/test/qualify.test.js b/test/qualify.test.js
+new file mode 100644
+index 0000000..2a883e9
+--- /dev/null
++++ b/test/qualify.test.js
+@@ -0,0 +1,68 @@
++import { test } from "node:test";
++import assert from "node:assert/strict";
++
++import {
++  phoneLast10,
++  buildTranscript,
++  hasEnoughSignal,
++  clampScore,
++  parseQualification
++} from "../handlers/qualify.js";
++
++test("phoneLast10: берёт последние 10 цифр из chat_id", () => {
++  assert.equal(phoneLast10("77012424492@c.us"), "7012424492");
++  assert.equal(phoneLast10("87009394171"), "7009394171");
++});
++
++test("phoneLast10: мусор/короткие номера → null", () => {
++  assert.equal(phoneLast10(""), null);
++  assert.equal(phoneLast10(null), null);
++  assert.equal(phoneLast10("123@c.us"), null);
++});
++
++test("buildTranscript: in→Клиент, out→Менеджер, пустые пропускаются", () => {
++  const t = buildTranscript([
++    { direction: "in", text: "Здравствуйте" },
++    { direction: "out", text: "Добрый день!" },
++    { direction: "in", text: "  " },
++    { direction: "in", text: "Сколько стоит?" }
++  ]);
++  assert.equal(t, "Клиент: Здравствуйте\nМенеджер: Добрый день!\nКлиент: Сколько стоит?");
++});
++
++test("hasEnoughSignal: нужна хотя бы одна реплика клиента", () => {
++  assert.equal(hasEnoughSignal([{ direction: "out", text: "Привет" }]), false);
++  assert.equal(hasEnoughSignal([{ direction: "in", text: "Привет" }]), true);
++  assert.equal(hasEnoughSignal([{ direction: "in", text: "   " }]), false);
++});
++
++test("clampScore: округляет и зажимает в 0..100", () => {
++  assert.equal(clampScore(73.4), 73);
++  assert.equal(clampScore(-5), 0);
++  assert.equal(clampScore(150), 100);
++  assert.equal(clampScore("не число"), null);
++});
++
++test("parseQualification: собирает score + полный профиль", () => {
++  const q = parseQualification({
++    score: 80,
++    budget: "средний",
++    urgency: "высокая",
++    niche: "мебель",
++    readiness: "горячий",
++    summary: "Готов к встрече",
++    signals: ["просил цену", "назвал сроки"]
++  });
++  assert.equal(q.score, 80);
++  assert.equal(q.profile.niche, "мебель");
++  assert.equal(q.profile.readiness, "горячий");
++  assert.deepEqual(q.profile.signals, ["просил цену", "назвал сроки"]);
++});
++
++test("parseQualification: отсутствующие поля → 'неизвестно', нет score → null", () => {
++  const q = parseQualification({ score: 40 });
++  assert.equal(q.profile.budget, "неизвестно");
++  assert.deepEqual(q.profile.signals, []);
++  assert.equal(parseQualification({ budget: "высокий" }), null);
++  assert.equal(parseQualification(null), null);
++});
+-- 
+2.43.0
+
