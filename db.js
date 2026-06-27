@@ -372,6 +372,31 @@ export async function getLastMessage(chatId) {
   }
 }
 
+// --- Онбординг: профиль ниши проекта ---
+
+// Сохраняет профиль ниши в projects. Дублируем industry→niche и geo→city,
+// чтобы старый UI, читающий projects.niche/city, продолжал работать.
+export async function saveNicheProfile(projectId, profile, text) {
+  if (!ready || !projectId) return false;
+  try {
+    await rest(`/projects?id=eq.${encodeURIComponent(projectId)}`, {
+      method: "PATCH",
+      headers: headers({ Prefer: "return=minimal" }),
+      body: JSON.stringify({
+        niche_profile: profile,
+        onboarding_text: text,
+        niche_profile_at: new Date().toISOString(),
+        niche: profile.industry,
+        city: profile.geo
+      })
+    });
+    return true;
+  } catch (err) {
+    console.error("saveNicheProfile error:", err.message);
+    return false;
+  }
+}
+
 // --- Авто-назначение менеджеров ---
 
 // Активные менеджеры проекта (role=manager). Возвращает массив имён (full_name).
