@@ -337,6 +337,23 @@ export async function getHotLeads({ limit = 50, minScore = 0, projectId = null }
   }
 }
 
+// Все квалифицированные лиды (для ежедневной сводки). Сортировка по баллу.
+export async function getAllQualified(limit = 2000) {
+  if (!ready) return [];
+  try {
+    const res = await rest(
+      `/leads?ai_qual_at=not.is.null` +
+      `&select=name,ai_qual_score,ai_qual_at,ai_qual_profile,assignee` +
+      `&order=ai_qual_score.desc&limit=${limit}`,
+      { headers: headers() }
+    );
+    return await res.json();
+  } catch (err) {
+    console.error("getAllQualified error:", err.message);
+    return [];
+  }
+}
+
 // Последнее сообщение в чате: { direction, created_at } или null.
 // Нужно сторожу, чтобы найти «застрявшие» лиды (последнее слово за клиентом).
 export async function getLastMessage(chatId) {
