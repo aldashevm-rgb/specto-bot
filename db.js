@@ -10,14 +10,16 @@ if (SUPABASE_URL && SERVICE_KEY) {
   });
 } else {
   console.warn(
-    "SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY не заданы — данные  сохраняются. " +
-    "адай их в переменных окружения (см. .env.example)."
+    "SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY не заданы — данные НЕ сохраняются. " +
+    "Задай их в переменных окружения (см. .env.example)."
   );
 }
 
 export function isDbReady() {
   return supabase !== null;
 }
+
+// --- Лиды (specto_bot_orders) ---
 
 export async function saveLead({ phone, name, details, platform }) {
   if (!supabase) return;
@@ -40,6 +42,8 @@ export async function getOrders(limit = 200) {
   }
   return data;
 }
+
+// --- История диалога (specto_bot_messages) ---
 
 export async function saveMessage(chatId, platform, role, content) {
   if (!supabase) return;
@@ -76,6 +80,8 @@ export async function countMessages(chatId) {
   }
   return count || 0;
 }
+
+// --- Состояние диалога / фоллоапы (specto_bot_state) ---
 
 export async function upsertState(chatId, row) {
   if (!supabase) return;
