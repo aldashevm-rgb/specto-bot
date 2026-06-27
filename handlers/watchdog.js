@@ -1,5 +1,6 @@
 import { processQualifications, phoneLast10 } from "./qualify.js";
 import { autoAssignHotLeads } from "./assign.js";
+import { maybeSendDailyDigest } from "./digest.js";
 import { isDbReady, healthPing, getRecentWaChats, getLastMessage, getLeadForPhone } from "../db.js";
 
 function envEnabled(name) {
@@ -164,6 +165,12 @@ export async function runWatchdog(opts = {}) {
       const lines = assigned.slice(0, 10).map(a => `• ${a.name || a.lead_id} (${a.score}) → ${a.assignee}`);
       await alert(`👤 Сторож: назначено ${assigned.length} горяч. лид(ов):\n` + lines.join("\n"));
     }
+  }
+
+  // 7. Ежедневная сводка (по умолчанию ВЫКЛ — DIGEST_ENABLED=1). Шлётся раз в день.
+  if (envEnabled("DIGEST_ENABLED")) {
+    const sent = await maybeSendDailyDigest({ alert, log });
+    report.digestSent = Boolean(sent);
   }
 
   log(
