@@ -17,4 +17,34 @@ const FOLLOWUP_MESSAGES = [
   },
   {
     delay: 7 * 24 * 60 * 60 * 1000,
-    text: "Добрый день! Прошла неделя. Я не пишу чтобы давить — просто хочу оставить вам наш контакт. Когда будете готовы масштабировать бизнес — SPECTO к вашим услугам. Работаем только​​​​​​​​​​​​​​​​
+    text: "Добрый день! Прошла неделя. Я не пишу чтобы давить — просто хочу оставить вам наш контакт. Когда будете готовы масштабировать бизнес — SPECTO к вашим услугам. Хорошего дня! 🙌"
+  }
+];
+
+// Активные таймеры по каждому пользователю
+const timers = {};
+
+export function startFollowUp(chatId, send) {
+  // Сбрасываем старые таймеры этого пользователя перед запуском новых
+  cancelFollowUp(chatId);
+
+  const handles = FOLLOWUP_MESSAGES.map(({ delay, text }) =>
+    setTimeout(() => {
+      try {
+        send(chatId, text);
+      } catch (err) {
+        console.error("Ошибка отправки follow-up:", err);
+      }
+    }, delay)
+  );
+
+  timers[chatId] = handles;
+}
+
+export function cancelFollowUp(chatId) {
+  const handles = timers[chatId];
+  if (handles) {
+    handles.forEach(clearTimeout);
+    delete timers[chatId];
+  }
+}

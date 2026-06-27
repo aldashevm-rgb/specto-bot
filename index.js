@@ -1,5 +1,6 @@
 import express from "express";
 import { handleMessage } from "./handlers/router.js";
+import { isDuplicate } from "./handlers/dedup.js";
 
 const app = express();
 app.use(express.json());
@@ -9,7 +10,7 @@ const TOKEN = process.env.TELEGRAM_TOKEN;
 app.post("/telegram", async (req, res) => {
   try {
     const message = req.body.message;
-    if (message && message.text) {
+    if (message && message.text && !isDuplicate("tg:" + req.body.update_id)) {
       const chatId = String(message.chat.id);
       const text = message.text;
       await handleMessage(chatId, text, "telegram");
@@ -33,7 +34,7 @@ app.get("/webhook", (req, res) => {
 app.post("/webhook", async (req, res) => {
   try {
     const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-    if (message) {
+    if (message && !isDuplicate("wa:" + message.id)) {
       const from = message.from;
       const text = message.text?.body || "";
       await handleMessage(from, text, "whatsapp");
@@ -46,7 +47,7 @@ app.post("/webhook", async (req, res) => {
 
 app.get("/orders", async (req, res) => {
   const { getOrders } = await import("./db.js");
-  res.json(getOrders());
+  res.json(await getOrders());
 });
 
 const PORT = process.env.PORT || 3000;
