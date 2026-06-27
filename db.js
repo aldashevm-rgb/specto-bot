@@ -155,3 +155,92 @@ export async function getDueFollowups(nowIso, limit = 50) {
     return [];
   }
 }
+
+// --- ИИ-квалификация лидов (таблицы CRM: whatsapp_messages + leads) ---
+//
+// Внимание: это НЕ таблицы бота (specto_bot_*). Квалификация работает с боевыми
+// данными CRM: переписка лежит в whatsapp_messages (chat_id вида "7701...@c.us",
+// direction in/out), лиды — в leads. Связь: leads.phone_norm = последние 10 цифр
+// номера из chat_id, в рамках одного project_id.
+
+// Уникальные WhatsApp-чаты (chat_id + project_id), по которым была переписка.
+// sinceIso — брать только чаты с сообщениями не раньше этого момента (для поллера);
+// null — все чаты (для бэкфилла). msgLimit ограничивает число просканированных строк.
+export async function getRecentWaChats({ sinceIso = null, msgLimit = 5000 } = {}) {
+  if (!ready) return [];
+  try {
+    let path =
+      "/whatsapp_messages?select=chat_id,project_id,created_at" +
+      "&order=created_at.desc" +
+      `&limit=${msgLimit}`;
+    if (sinceIso) path += `&created_at=gte.${encodeURIComponent(sinceIso)}`;
+    const res = await rest(path, { headers: headers() });
+    const rows = await res.json();
+    const seen = new Set();
+    const chats = [];
+    for (const r of rows) {
+      if (!r.chat_id || seen.has(r.chat_id)) continue;
+      seen.add(r.chat_id);
+      chats.push({ chat_id: r.chat_id, project_id: r.project_id });
+    }
+    return chats;
+  } catch (err) {
+    console.error("getRecentWaChats error:", err.message);
+    return [];
+  }
+}
+
+// Самый свежий лид с данным phone_norm в рамках project_id (или без привязки к проекту,
+// если projectId не задан). Возвращает объект лида или null.
+export async function getLeadForPhone(phoneNorm, projectId = null) {
+  if (!ready || !phoneNorm) return null;
+  try {
+    let path =
+      `/leads?select=id,name,project_id,ai_qual_at,ai_qual_score` +
+      `&phone_norm=eq.${encodeURIComponent(phoneNorm)}`;
+    if (projectId) path += `&project_id=eq.${encodeURIComponent(projectId)}`;
+    path += "&order=created_at.desc&limit=1";
+    const res = await rest(path, { headers: headers() });
+    const rows = await res.json();
+    return rows[0] || null;
+  } catch (err) {
+    console.error("getLeadForPhone error:", err.message);
+    return null;
+  }
+}
+
+// Переписка по чату в хронологическом порядке: [{ direction, text, created_at }].
+export async function getConversation(chatId, limit = 200) {
+  if (!ready) return [];
+  try {
+    const res = await rest(
+      `/whatsapp_messages?chat_id=eq.${encodeURIComponent(chatId)}` +
+      `&select=direction,text,created_at&order=created_at.asc&limit=${limit}`,
+      { headers: headers() }
+    );
+    return await res.json();
+  } catch (err) {
+    console.error("getConversation error:", err.message);
+    return [];
+  }
+}
+
+// Записать результат квалификации в лид. score — int 0..100, profile — объект (jsonb).
+export async function saveQualification(leadId, score, profile) {
+  if (!ready) return false;
+  try {
+    await rest(`/leads?id=eq.${encodeURIComponent(leadId)}`, {
+      method: "PATCH",
+      headers: headers({ Prefer: "return=minimal" }),
+      body: JSON.stringify({
+        ai_qual_score: score,
+        ai_qual_profile: profile,
+        ai_qual_at: new Date().toISOString()
+      })
+    });
+    return true;
+  } catch (err) {
+    console.error("saveQualification error:", err.message);
+    return false;
+  }
+}

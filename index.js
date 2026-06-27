@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { handleMessage } from "./handlers/router.js";
 import { sendMessage } from "./whatsapp.js";
 import { processDueFollowups } from "./handlers/followup.js";
+import { processQualifications } from "./handlers/qualify.js";
 import { getOrders, isDbReady } from "./db.js";
 
 const app = express();
@@ -80,4 +81,28 @@ app.listen(PORT, () => {
     setInterval(tick, 60 * 1000);
     tick();
   }
+
+  // Поллер ИИ-квалификации лидов (по умолчанию ВЫКЛ — включается QUAL_ENABLED=1).
+  // Берёт чаты whatsapp_messages за последнее окно, оценивает ещё не
+  // квалифицированные лиды и пишет результат в leads.ai_qual_*.
+  if (isDbReady() && process.env.ANTHROPIC_API_KEY && isQualEnabled()) {
+    const intervalMs = Number(process.env.QUAL_INTERVAL_MS) || 5 * 60 * 1000;
+    const lookbackMin = Number(process.env.QUAL_LOOKBACK_MIN) || 60;
+    const perTick = Number(process.env.QUAL_BATCH) || 10;
+    console.log(`ИИ-квалификация лидов ВКЛ: каждые ${intervalMs}мс, окно ${lookbackMin}мин, до ${perTick} лидов/прогон.`);
+    const qualTick = () => {
+      const sinceIso = new Date(Date.now() - lookbackMin * 60 * 1000).toISOString();
+      return processQualifications({ sinceIso, limit: perTick }).catch(err =>
+        console.error("Ошибка поллера квалификации:", err));
+    };
+    setInterval(qualTick, intervalMs);
+    qualTick();
+  } else if (isDbReady()) {
+    console.log("ИИ-квалификация лидов ВЫКЛ (QUAL_ENABLED!=1 или нет ANTHROPIC_API_KEY).");
+  }
 });
+
+function isQualEnabled() {
+  const v = String(process.env.QUAL_ENABLED || "").toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
