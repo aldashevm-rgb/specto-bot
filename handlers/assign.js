@@ -1,14 +1,16 @@
 import {
   getUnassignedHotLeads,
   getActiveManagers,
+  getResponsibleAssignee,
   countLeadsByAssignee,
   setAssignee,
   isDbReady
 } from "../db.js";
 
 // Авто-назначение менеджера горячим лидам, которые попали в корзину «director»
-// (ничьи). Стратегия — «наименее загруженному»: лид уходит активному менеджеру
-// проекта, у которого сейчас меньше всего лидов. Уже назначенные лиды не трогаем.
+// (ничьи). Приоритет — ПРЕВЫЩЕННая система: если у клиента уже есть ответственный
+// (вёл его раньше), лид уходит ему — чтобы не перекидывать клиента по кругу.
+// Только если клиент новый — отдаём наименее загруженному активному менеджеру.
 
 // Чистая функция: имя с наименьшей загрузкой. loads = { имя: число }.
 // При равенстве берёт первого по порядку. null, если список пуст.
@@ -19,6 +21,15 @@ export function pickLeastLoaded(loads) {
     if (n < min) { min = n; best = name; }
   }
   return best;
+}
+
+// Чистая функция выбора: есть ответственный → ему (continuity), иначе наименее
+// загруженному (least-loaded). Возвращает { who, reason } или { who: null }.
+export function chooseAssignee(responsible, loads) {
+  if (responsible && responsible.trim()) {
+    return { who: responsible, reason: "continuity" };
+  }
+  return { who: pickLeastLoaded(loads), reason: "least-loaded" };
 }
 
 // Назначает горячих ничьих лидов. opts:
@@ -54,14 +65,18 @@ export async function autoAssignHotLeads(opts = {}) {
     for (const m of managers) loads[m] = await countLeadsByAssignee(project, m);
 
     for (const lead of plist) {
-      const who = pickLeastLoaded(loads);
+      // 1) есть ли у клиента уже свой ответственный?
+      const responsible = await getResponsibleAssignee(lead.phone_norm, project);
+      const { who, reason } = chooseAssignee(responsible, loads);
+      if (!who) continue;
       if (!dryRun) {
         const ok = await setAssignee(lead.id, who);
         if (!ok) continue;
       }
-      loads[who] += 1; // учитываем в загрузке для следующего лида
-      assignments.push({ lead_id: lead.id, name: lead.name, score: lead.ai_qual_score, project, assignee: who });
-      log(`Авто-назначение: ${lead.name || lead.id} (${lead.ai_qual_score}) → ${who}`);
+      // Загрузку увеличиваем только для балансировки новых (least-loaded).
+      if (reason === "least-loaded" && who in loads) loads[who] += 1;
+      assignments.push({ lead_id: lead.id, name: lead.name, score: lead.ai_qual_score, project, assignee: who, reason });
+      log(`Авто-назначение: ${lead.name || lead.id} (${lead.ai_qual_score}) → ${who} [${reason}]`);
     }
   }
   return assignments;

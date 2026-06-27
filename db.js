@@ -400,7 +400,7 @@ export async function getUnassignedHotLeads(minScore = 60) {
   if (!ready) return [];
   try {
     const res = await rest(
-      `/leads?select=id,name,project_id,ai_qual_score` +
+      `/leads?select=id,name,project_id,phone_norm,ai_qual_score` +
       `&ai_qual_score=gte.${minScore}` +
       `&or=(assignee.eq.director,assignee.is.null)` +
       `&order=ai_qual_score.desc`,
@@ -410,6 +410,28 @@ export async function getUnassignedHotLeads(minScore = 60) {
   } catch (err) {
     console.error("getUnassignedHotLeads error:", err.message);
     return [];
+  }
+}
+
+// Кто уже ведёт этого клиента: самый свежий лид с тем же phone_norm, у которого
+// назначен реальный ответственный (не «director»/пусто). Возвращает имя или null.
+// Нужно, чтобы горячий лид уходил «своему» менеджеру, а не перекидывал клиента.
+export async function getResponsibleAssignee(phoneNorm, projectId) {
+  if (!ready || !phoneNorm) return null;
+  try {
+    const res = await rest(
+      `/leads?select=assignee,created_at&phone_norm=eq.${encodeURIComponent(phoneNorm)}` +
+      `&project_id=eq.${encodeURIComponent(projectId)}` +
+      `&assignee=not.is.null&assignee=neq.director` +
+      `&order=created_at.desc&limit=1`,
+      { headers: headers() }
+    );
+    const rows = await res.json();
+    const who = rows[0]?.assignee;
+    return who && who.trim() ? who : null;
+  } catch (err) {
+    console.error("getResponsibleAssignee error:", err.message);
+    return null;
   }
 }
 
