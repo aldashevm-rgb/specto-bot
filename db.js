@@ -397,6 +397,79 @@ export async function saveNicheProfile(projectId, profile, text) {
   }
 }
 
+// --- Плейбуки (скелеты автоматизаций/стадий/маркетинга под нишу) ---
+
+// Один проект целиком (нужно CLI плейбуков: niche_profile + organization_id).
+export async function getProject(projectId) {
+  if (!ready || !projectId) return null;
+  try {
+    const res = await rest(
+      `/projects?id=eq.${encodeURIComponent(projectId)}&select=*&limit=1`,
+      { headers: headers() }
+    );
+    const rows = await res.json();
+    return rows[0] || null;
+  } catch (err) {
+    console.error("getProject error:", err.message);
+    return null;
+  }
+}
+
+// Активные плейбуки-скелеты (niche_playbooks). Из них matchPlaybook выбирает
+// подходящий по модели/отрасли.
+export async function getPlaybooks() {
+  if (!ready) return [];
+  try {
+    const res = await rest(
+      "/niche_playbooks?is_active=eq.true&select=*",
+      { headers: headers() }
+    );
+    return await res.json();
+  } catch (err) {
+    console.error("getPlaybooks error:", err.message);
+    return [];
+  }
+}
+
+// Сохраняет применённый плейбук в проект.
+export async function savePlaybook(projectId, playbook) {
+  if (!ready || !projectId) return false;
+  try {
+    await rest(`/projects?id=eq.${encodeURIComponent(projectId)}`, {
+      method: "PATCH",
+      headers: headers({ Prefer: "return=minimal" }),
+      body: JSON.stringify({
+        playbook,
+        playbook_at: new Date().toISOString()
+      })
+    });
+    return true;
+  } catch (err) {
+    console.error("savePlaybook error:", err.message);
+    return false;
+  }
+}
+
+// Включает/выключает правило автоматизации по коду (trigger_type) в организации.
+export async function setAutomationActive(organizationId, code, active) {
+  if (!ready || !organizationId || !code) return false;
+  try {
+    await rest(
+      `/automation_rules?organization_id=eq.${encodeURIComponent(organizationId)}` +
+      `&trigger_type=eq.${encodeURIComponent(code)}`,
+      {
+        method: "PATCH",
+        headers: headers({ Prefer: "return=minimal" }),
+        body: JSON.stringify({ is_active: active })
+      }
+    );
+    return true;
+  } catch (err) {
+    console.error("setAutomationActive error:", err.message);
+    return false;
+  }
+}
+
 // --- Авто-назначение менеджеров ---
 
 // Активные менеджеры проекта (role=manager). Возвращает массив имён (full_name).
