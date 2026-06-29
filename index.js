@@ -39,18 +39,45 @@ function isValidWhatsAppSignature(req) {
   }
 }
 
+// Разбирает входящий вебхук обоих провайдеров → { from, text } или null.
+//   GREEN-API: { typeWebhook, senderData.chatId, messageData.{textMessageData|extendedTextMessageData} }
+//   Meta:      { entry[].changes[].value.messages[] }
+function parseInbound(body) {
+  if (!body) return null;
+
+  // GREEN-API
+  if (body.typeWebhook) {
+    if (body.typeWebhook !== "incomingMessageReceived") return null;
+    const from = body.senderData?.chatId;
+    const md = body.messageData || {};
+    const text =
+      md.textMessageData?.textMessage ||
+      md.extendedTextMessageData?.text ||
+      "";
+    return from && text ? { from, text } : null;
+  }
+
+  // Meta (WhatsApp Cloud API)
+  const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+  if (message) {
+    const from = message.from;
+    const text = message.text?.body || "";
+    return from && text ? { from, text } : null;
+  }
+  return null;
+}
+
 // --- WhatsApp: входящие сообщения (POST) ---
 app.post("/webhook", async (req, res) => {
-  if (!isValidWhatsAppSignature(req)) {
+  // Подпись X-Hub-Signature-256 есть только у Meta. У GREEN-API её нет —
+  // его вебхук определяем по полю typeWebhook и проверку подписи пропускаем.
+  const isGreen = Boolean(req.body && req.body.typeWebhook);
+  if (!isGreen && !isValidWhatsAppSignature(req)) {
     return res.sendStatus(403);
   }
   try {
-    const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-    if (message) {
-      const from = message.from;
-      const text = message.text?.body || "";
-      if (text) await handleMessage(from, text, "whatsapp");
-    }
+    const msg = parseInbound(req.body);
+    if (msg) await handleMessage(msg.from, msg.text, "whatsapp");
     res.sendStatus(200);
   } catch (err) {
     console.error("Ошибка WhatsApp:", err);
