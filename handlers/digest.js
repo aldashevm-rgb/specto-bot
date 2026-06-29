@@ -1,91 +1,121 @@
-import { getAllQualified } from "../db.js";
+import { getAllQualified, getPlaybookMetrics, getAutomationImpact } from "../db.js";
+import { analyzeImpact, formatPlaybookReport } from "./playbookMetrics.js";
 
-// Ежедневная сводка по квалифицированным лидам. Шлётся раз в день через тот же
-// механизм alert(), что и у сторожа (watchdog.js, шаг 7, при DIGEST_ENABLED=1).
-//
-// Все параметры переопределяются переменными окружения:
-//   DIGEST_HOT_SCORE — порог «горячего» лида (по умолчанию 70)
-//   DIGEST_HOUR      — локальный час отправки (по умолчанию 9)
-//   DIGEST_TZ_OFFSET — смещение часового пояса от UTC (Алматы = +5)
-//   DIGEST_TOP       — сколько лидов показать в топе (по умолчанию 10)
+// Ежедневная сводка по квалифицированным лидам: сколько всего, сколько горячих,
+// сколько новых за сутки, разбивка по рубрикам и топ-5. Чистые функции
+// buildDigest/formatDigest тестируются без БД; maybeSendDailyDigest шлёт её
+// раз в день через сторож.
 
-const HOT_SCORE = Number(process.env.DIGEST_HOT_SCORE) || 70;
-const SEND_HOUR = Number(process.env.DIGEST_HOUR ?? 9);
-const TZ_OFFSET = Number(process.env.DIGEST_TZ_OFFSET ?? 5);
-const TOP_N = Number(process.env.DIGEST_TOP) || 10;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const HOT_SCORE = 60;
 
-// В памяти: день последней отправки ("YYYY-MM-DD"). Защита от повторов в течение
-// дня. При рестарте процесса сбрасывается — в худшем случае сводка уйдёт
-// повторно один раз, это некритично.
-let lastSentDay = null;
-
-// Локальные «день» и «час» с учётом смещения часового пояса.
-function localParts(now) {
-  const d = new Date(now + TZ_OFFSET * 60 * 60 * 1000);
-  return { day: d.toISOString().slice(0, 10), hour: d.getUTCHours() };
-}
-
-// Чистая сборка текста сводки из списка квалифицированных лидов.
-// Возвращает строку либо null, если показывать нечего.
-export function buildDigest(leads = [], { hotScore = HOT_SCORE, topN = TOP_N, day, tzOffset = TZ_OFFSET } = {}) {
-  if (!Array.isArray(leads) || leads.length === 0) return null;
-
-  const isToday = (iso) => {
-    if (!iso || !day) return false;
-    const d = new Date(new Date(iso).getTime() + tzOffset * 60 * 60 * 1000);
-    return d.toISOString().slice(0, 10) === day;
-  };
-
+// Чистая функция: сводит лиды в отчёт. now — момент отсчёта (мс).
+// lead: { name, ai_qual_score, ai_qual_at, ai_qual_profile, assignee }.
+export function buildDigest(leads = [], now = Date.now()) {
   const total = leads.length;
-  const newToday = leads.filter(l => isToday(l.ai_qual_at)).length;
-  const hot = leads.filter(l => (l.ai_qual_score ?? 0) >= hotScore);
-  const unassigned = leads.filter(l => !l.assignee || l.assignee === "director").length;
+  let hot = 0;
+  let new24h = 0;
+  const catCounts = {};
+
+  for (const l of leads) {
+    const score = l.ai_qual_score ?? 0;
+    if (score >= HOT_SCORE) hot += 1;
+
+    const at = l.ai_qual_at ? new Date(l.ai_qual_at).getTime() : NaN;
+    if (!Number.isNaN(at) && at >= now - DAY_MS) new24h += 1;
+
+    const category = l.ai_qual_profile?.category || "не определено";
+    catCounts[category] = (catCounts[category] || 0) + 1;
+  }
+
+  const byCategory = Object.entries(catCounts)
+    .map(([category, n]) => ({ category, n }))
+    .sort((a, b) => b.n - a.n);
 
   const top = [...leads]
     .sort((a, b) => (b.ai_qual_score ?? 0) - (a.ai_qual_score ?? 0))
-    .slice(0, topN)
-    .map(l => {
-      const who = l.assignee && l.assignee !== "director" ? l.assignee : "без менеджера";
-      return `• ${l.name || "—"} (${l.ai_qual_score ?? 0}) — ${who}`;
-    });
+    .slice(0, 5)
+    .map(l => ({
+      name: l.name || "—",
+      score: l.ai_qual_score ?? 0,
+      category: l.ai_qual_profile?.category || "не определено",
+      assignee: l.assignee || "—"
+    }));
 
-  return [
-    `📊 Ежедневная сводка SPECTO${day ? ` — ${day}` : ""}`,
-    `Квалифицировано всего: ${total}`,
-    `За сегодня: ${newToday}`,
-    `🔥 Горячих (≥${hotScore}): ${hot.length}`,
-    `Без менеджера: ${unassigned}`,
-    "",
-    "Топ лидов по баллу:",
-    ...top
-  ].join("\n");
+  return { total, hot, new24h, byCategory, top };
 }
 
-// Шлёт сводку максимум раз в день и не раньше часа SEND_HOUR (локального).
-// alert(text) — функция доставки (тот же механизм, что у сторожа).
-// Возвращает true, если сводка отправлена именно в этот вызов.
-export async function maybeSendDailyDigest({ alert = console.log, log = console.log, now = Date.now() } = {}) {
-  const { day, hour } = localParts(now);
+// Чистая функция: рендерит сводку в текст для алерта.
+export function formatDigest(d) {
+  const lines = [
+    "📊 Ежедневная сводка по лидам",
+    `Всего квалифицировано: ${d.total} · горячих (≥${HOT_SCORE}): ${d.hot} · новых за 24ч: ${d.new24h}`
+  ];
 
-  if (lastSentDay === day) return false;   // уже отправляли сегодня
-  if (hour < SEND_HOUR) return false;      // ещё рано
-
-  const leads = await getAllQualified();
-  const text = buildDigest(leads, { day });
-
-  lastSentDay = day; // помечаем день даже при пустой сводке — чтобы не долбить повторно
-
-  if (!text) {
-    log("Дайджест: квалифицированных лидов нет — пропуск.");
-    return false;
+  if (d.byCategory.length) {
+    lines.push("");
+    lines.push("По рубрикам:");
+    for (const c of d.byCategory) lines.push(`• ${c.category}: ${c.n}`);
   }
 
-  await alert(text);
-  log("Дайджест отправлен.");
-  return true;
+  if (d.top.length) {
+    lines.push("");
+    lines.push("Топ-5:");
+    for (const t of d.top) {
+      lines.push(`• ${t.name} (${t.score}) — ${t.category} → ${t.assignee}`);
+    }
+  }
+
+  return lines.join("\n");
 }
 
-// Для тестов: сброс внутреннего состояния «день последней отправки».
-export function __resetDigestState() {
-  lastSentDay = null;
+// Защита от дублей: день (UTC), за который сводка уже отправлена.
+let lastDigestDay = null;
+
+// Для тестов: сбросить состояние «последнего отправленного дня».
+export function resetDigestState() {
+  lastDigestDay = null;
+}
+
+function utcDay(now) {
+  return new Date(now).toISOString().slice(0, 10); // YYYY-MM-DD
+}
+
+// Шлёт сводку раз в день: только если UTC-час >= DIGEST_HOUR (по умолчанию 6)
+// и за этот день ещё не слали. Возвращает true, если сводка отправлена.
+export async function maybeSendDailyDigest({
+  hour = Number(process.env.DIGEST_HOUR) || 6,
+  now = Date.now(),
+  alert,
+  log = console.log
+} = {}) {
+  const d = new Date(now);
+  if (d.getUTCHours() < hour) return false;
+
+  const day = utcDay(now);
+  if (lastDigestDay === day) return false;
+
+  const leads = await getAllQualified();
+  const digest = buildDigest(leads, now);
+  let text = formatDigest(digest);
+
+  // Раз в неделю (по умолчанию понедельник UTC) добавляем секцию эффективности
+  // плейбуков — чтобы не слать тяжёлую аналитику каждый день.
+  const weeklyDay = Number.isFinite(Number(process.env.DIGEST_PLAYBOOK_DAY))
+    ? Number(process.env.DIGEST_PLAYBOOK_DAY)
+    : 1;
+  if (d.getUTCDay() === weeklyDay) {
+    try {
+      const [metrics, impactRows] = await Promise.all([getPlaybookMetrics(), getAutomationImpact()]);
+      text += "\n\n" + formatPlaybookReport(metrics, analyzeImpact(impactRows));
+    } catch (err) {
+      log(`Сводка: секция плейбуков пропущена (${err.message}).`);
+    }
+  }
+
+  if (alert) await alert(text);
+
+  lastDigestDay = day;
+  log(`Сводка: отправлена за ${day} (всего=${digest.total}, горячих=${digest.hot}, новых=${digest.new24h}).`);
+  return true;
 }
