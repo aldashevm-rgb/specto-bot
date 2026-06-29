@@ -2,17 +2,16 @@ import { askClaude } from "./aiChat.js";
 import { sendMessage } from "../whatsapp.js";
 import { scheduleFollowups, stopFollowups } from "./followup.js";
 import { saveLead, saveMessage, getHistory, countMessages } from "../db.js";
+import { getActiveProfile } from "../config/businessProfiles.js";
 
 const STOP_WORDS = [
   "не нужно", "не надо", "передумал", "передумала",
   "спасибо не нужно", "не интересно", "откажусь", "не актуально"
 ];
 
-const STOP_REPLY =
-  "Понял вас! Спасибо за честность 🤝 Если в будущем понадобится система роста продаж — всегда рады помочь. Удачи в бизнесе!";
-
-const FALLBACK_REPLY =
-  "Секунду, уточню детали и сразу вернусь к вам 🙏";
+// Ответы зависят от активного бизнес-профиля (BOT_PROFILE).
+const STOP_REPLY = getActiveProfile().stopReply;
+const FALLBACK_REPLY = getActiveProfile().fallbackReply;
 
 export async function handleMessage(chatId, text, platform = "whatsapp") {
   const lower = text.toLowerCase();
