@@ -1,0 +1,14 @@
+{
+  "name": "arb-core",
+  "version": "0.1.0",
+  "description": "Ядро спортивного арбитража: сканер вилок (surebet) + ИИ-разбор мотивации матчей",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "scan": "node src/index.js",
+    "test": "node --test"
+  }
+}
