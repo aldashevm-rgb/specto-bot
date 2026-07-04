@@ -23,14 +23,18 @@ export function formatSurebet(sb) {
     .map(l => `• ${esc(l.name)} @ ${l.odds} (${esc(l.bookmaker)}) — ставка ${l.stake}`)
     .join("\n");
 
-  let ai = "";
-  if (sb.ai) {
-    ai =
-      `\n🤖 нужнее победа: ${esc(sb.ai.needsWin)}; вероятный исход: ${esc(sb.ai.likelyOutcome)} ` +
-      `(П1 ${Math.round(sb.ai.probs.home * 100)}% / Х ${Math.round(sb.ai.probs.draw * 100)}% / ` +
-      `П2 ${Math.round(sb.ai.probs.away * 100)}%)`;
+  let extra = "";
+  // Ансамблевый прогноз (консенсус рынка + Пуассон + LLM) и value-перевес.
+  const pred = sb.prediction;
+  if (pred && pred.top) {
+    const conf = pred.agreement != null ? `, согласие ${Math.round(pred.agreement * 100)}%` : "";
+    extra += `\n📈 прогноз: ${esc(pred.top.name)} ${pred.top.modelProb}%` +
+      (pred.top.edgePct > 0 ? ` (value +${pred.top.edgePct}%)` : "") + conf;
   }
-  return `${head}\n${legs}${ai}`;
+  if (sb.ai) {
+    extra += `\n🤖 нужнее победа: ${esc(sb.ai.needsWin)}; вероятный исход: ${esc(sb.ai.likelyOutcome)}`;
+  }
+  return `${head}\n${legs}${extra}`;
 }
 
 // Отправить одно сообщение. Возвращает true/false. Без ключей — тихо false.

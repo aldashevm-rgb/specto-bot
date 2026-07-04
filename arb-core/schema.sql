@@ -24,6 +24,19 @@ create table if not exists arb_surebets (
   ai_probs          jsonb,                         -- { home, draw, away } доли
   ai_reasoning      text,
 
+  -- Ансамблевый прогноз (консенсус рынка + Пуассон + LLM).
+  pred_probs        jsonb,                         -- { name: prob } финальные
+  pred_sources      jsonb,                         -- какие источники участвовали
+  pred_top_name     text,                          -- исход с максимальным value
+  pred_top_edge     numeric,                       -- его перевес, %
+  pred_agreement    numeric,                       -- согласие источников 0..1
+
+  -- Результат и калибровка (заполняются грейдингом после матча).
+  actual_outcome    text,                          -- home | draw | away
+  brier             numeric,                       -- Brier score прогноза
+  log_loss          numeric,
+  graded_at         timestamptz,
+
   found_at          timestamptz not null default now(),
 
   -- Одна запись на (событие, рынок, линию): повторный скан обновляет её.

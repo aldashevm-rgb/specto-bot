@@ -8,6 +8,7 @@ import { withRetry } from "../util/http.js";
 // Вилка → строка таблицы arb_surebets. Чистая функция — тестируется без сети.
 export function buildRow(sb) {
   const ai = sb.ai || null;
+  const pred = sb.prediction || null;
   return {
     event_id: sb.id,
     sport: sb.sport,
@@ -26,7 +27,13 @@ export function buildRow(sb) {
     ai_likely: ai ? ai.likelyOutcome : null,
     ai_confidence: ai ? ai.confidence : null,
     ai_probs: ai ? ai.probs : null,          // jsonb
-    ai_reasoning: ai ? ai.reasoning : null
+    ai_reasoning: ai ? ai.reasoning : null,
+    // Ансамблевый прогноз (консенсус + Пуассон + LLM) — для сверки точности.
+    pred_probs: pred ? pred.probs : null,    // jsonb { name: p }
+    pred_sources: pred ? pred.sources : null,// jsonb ["consensus","model","ai"]
+    pred_top_name: pred && pred.top ? pred.top.name : null,
+    pred_top_edge: pred && pred.top ? pred.top.edgePct : null,
+    pred_agreement: pred ? pred.agreement : null
   };
 }
 

@@ -31,6 +31,14 @@ export const config = {
   supabaseKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
   supabaseTable: process.env.ARB_TABLE || "arb_surebets",
 
+  // Веса ансамбля прогноза: консенсус рынка / модель Пуассона / LLM.
+  weights: {
+    consensus: Number(process.env.ARB_W_CONSENSUS ?? 0.5),
+    model: Number(process.env.ARB_W_MODEL ?? 0.3),
+    ai: Number(process.env.ARB_W_AI ?? 0.2)
+  },
+  poissonMaxGoals: Number(process.env.ARB_POISSON_MAXGOALS) || 10,
+
   // Параметры сканера.
   minMarginPct: Number(process.env.ARB_MIN_MARGIN) || 0.5, // мин. маржа вилки, %
   totalStake: Number(process.env.ARB_STAKE) || 1000,       // банк на событие

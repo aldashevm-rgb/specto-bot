@@ -1,66 +1,113 @@
-// Оркестратор: коэффициенты → нормализация → поиск вилок → ИИ-разбор →
-// уведомления (Telegram) и лог (Supabase).
+// Оркестратор: коэффициенты → нормализация → поиск вилок → ПРОГНОЗ (ансамбль:
+// консенсус рынка + Пуассон + LLM) → уведомления (Telegram) и лог (Supabase).
 //
 // Поток:
 //   1. Тянем линии всех БК (The Odds API) по выбранным рынкам.
 //   2. Нормализуем в «линии» (h2h / тоталы / форы), берём лучший коэф. на исход.
 //   3. Ищем вилки (arbitrage.findSurebets) и считаем раскладку ставок.
-//   4. По найденным событиям — статистика (API-Football) + ИИ-разбор (Claude):
-//      кому нужнее победа и какой исход вероятнее. Разбор кэшируется по событию.
-//   5. Уведомляем о вилках выше порога и логируем в БД.
+//   4. По найденным событиям строим прогноз из независимых источников:
+//        • consensus — «честные» вероятности рынка без маржи (все БК);
+//        • model     — модель Пуассона по средним голам (API-Football);
+//        • ai        — разбор Claude (кому нужна победа / вероятный исход).
+//      Смешиваем их в финальную вероятность и считаем value-перевес.
+//   5. Уведомляем о вилках выше порога и логируем в БД (с прогнозом).
 
 import { fetchOdds } from "../sources/oddsApi.js";
-import { findTeam, teamForm, summarizeContext } from "../sources/apiFootball.js";
+import { findTeam, teamForm, teamGoalAverages, summarizeContext } from "../sources/apiFootball.js";
 import { normalizeEventsMulti } from "./normalize.js";
 import { findSurebets } from "./arbitrage.js";
-import { readMatch, valueEdges } from "./motivation.js";
+import { readMatch } from "./motivation.js";
+import { marketConsensus } from "./devig.js";
+import { lambdasFromAverages, outcomeProbs, totalsProbs } from "./poisson.js";
+import { buildPrediction, hdaToNamed, ouToNamed, DEFAULT_WEIGHTS } from "./predict.js";
 import { notifySurebets } from "../notify/telegram.js";
 import { logSurebets } from "../store/supabase.js";
 import { config, haveApiFootball, haveClaude } from "../config.js";
 
-// Собрать контекст матча из API-Football (форма обеих команд).
-async function buildContext(home, away) {
-  if (!haveApiFootball()) return "";
+// Статистика матча из API-Football: текст-контекст для LLM + средние голов
+// обеих команд для модели Пуассона. Без ключа/данных — пустые поля.
+async function gatherStats(home, away) {
+  if (!haveApiFootball()) return { context: "", homeAvg: null, awayAvg: null };
   try {
     const [ht, at] = await Promise.all([findTeam(home), findTeam(away)]);
     const [hf, af] = await Promise.all([
       ht ? teamForm(ht.id) : Promise.resolve([]),
       at ? teamForm(at.id) : Promise.resolve([])
     ]);
-    return summarizeContext({ home, away, homeForm: hf, awayForm: af, table: [] });
+    return {
+      context: summarizeContext({ home, away, homeForm: hf, awayForm: af, table: [] }),
+      homeAvg: teamGoalAverages(hf, home),
+      awayAvg: teamGoalAverages(af, away)
+    };
   } catch (err) {
-    console.warn(`Контекст ${home}–${away} не собран: ${err.message}`);
-    return "";
+    console.warn(`Статистика ${home}–${away} не собрана: ${err.message}`);
+    return { context: "", homeAvg: null, awayAvg: null };
   }
 }
 
-// Обогатить линию ИИ-разбором. cache — Map(eventId → read), чтобы не дёргать
-// Claude по каждой линии тотала одного и того же матча.
-async function enrich(line, cache) {
-  if (!haveClaude()) return line;
-  let read = cache.get(line.id);
-  if (read === undefined) {
-    const context = await buildContext(line.home, line.away);
-    read = await readMatch({ home: line.home, away: line.away, context });
-    cache.set(line.id, read);
+// Модель Пуассона → вероятности исходов для конкретной линии (или null).
+function modelProbs(line, homeAvg, awayAvg) {
+  if (!homeAvg || !awayAvg) return null;
+  const lam = lambdasFromAverages({
+    homeScoredAvg: homeAvg.scoredAvg, homeConcededAvg: homeAvg.concededAvg,
+    awayScoredAvg: awayAvg.scoredAvg, awayConcededAvg: awayAvg.concededAvg
+  });
+  if (!lam) return null;
+  const max = config.poissonMaxGoals;
+  if (line.market === "h2h") {
+    const p = outcomeProbs(lam.lh, lam.la, max);
+    return hdaToNamed(p, line.home, line.away);
   }
-  if (!read) return { ...line, ai: null };
-  // value-перевес считаем только для 1X2 (Over/Under к именам команд не мапится).
-  const edges = line.market === "h2h"
-    ? valueEdges({ home: line.home, away: line.away }, read.probs, line.bestOutcomes)
-    : [];
-  return { ...line, ai: { ...read, edges } };
+  if (line.market === "totals" && line.point != null) {
+    return ouToNamed(totalsProbs(lam.lh, lam.la, line.point, max));
+  }
+  return null; // форы моделью не прогнозируем
+}
+
+// Кэш собранных по событию данных (статистика + LLM-разбор), чтобы много линий
+// тоталов одного матча не дёргали внешние API повторно. eventId → {stats, ai}.
+async function gatherOnce(cache, line) {
+  let bundle = cache.get(line.id);
+  if (bundle) return bundle;
+  const stats = await gatherStats(line.home, line.away);
+  const ai = haveClaude()
+    ? await readMatch({ home: line.home, away: line.away, context: stats.context })
+    : null;
+  bundle = { stats, ai };
+  cache.set(line.id, bundle);
+  return bundle;
+}
+
+// Прогноз для одной линии: собрать источники и смешать.
+async function predictLine(line, rawEvent, cache, weights) {
+  const { stats, ai } = await gatherOnce(cache, line);
+
+  const sources = [];
+
+  // 1) Консенсус рынка (все БК без маржи) — по именам исходов линии.
+  const consensus = rawEvent ? marketConsensus(rawEvent, line.market) : null;
+  if (consensus) sources.push({ label: "consensus", probs: consensus, weight: weights.consensus });
+
+  // 2) Модель Пуассона.
+  const model = modelProbs(line, stats.homeAvg, stats.awayAvg);
+  if (model) sources.push({ label: "model", probs: model, weight: weights.model });
+
+  // 3) LLM (только для h2h — даёт вероятности 1X2).
+  if (ai && line.market === "h2h") {
+    sources.push({ label: "ai", probs: hdaToNamed(ai.probs, line.home, line.away), weight: weights.ai });
+  }
+
+  const prediction = buildPrediction({ sources, bestOutcomes: line.bestOutcomes });
+  return { ...line, ai: ai || null, prediction };
 }
 
 // Полный скан. opts:
-//   sport        — ключ вида спорта The Odds API ("upcoming" | "soccer_epl" | ...)
-//   markets      — рынки: ["h2h","totals","spreads"]
-//   minMarginPct — минимальная маржа вилки, %
-//   totalStake   — банк на событие
-//   enrichAi     — обогащать ли ИИ-разбором (по умолчанию true)
-//   notify       — слать ли уведомления в Telegram (по умолчанию true)
-//   store        — логировать ли в Supabase (по умолчанию true)
-//   fetchOddsFn  — инъекция источника (для тестов)
+//   sport, markets, minMarginPct, totalStake — параметры отбора вилок
+//   enrichAi — строить ли прогноз (по умолчанию true)
+//   notify   — слать ли уведомления в Telegram
+//   store    — логировать ли в Supabase
+//   weights  — веса ансамбля (по умолчанию из config)
+//   fetchOddsFn — инъекция источника (для тестов)
 export async function scan({
   sport = "upcoming",
   markets = config.markets,
@@ -69,16 +116,18 @@ export async function scan({
   enrichAi = true,
   notify = true,
   store = true,
+  weights = config.weights || DEFAULT_WEIGHTS,
   fetchOddsFn = fetchOdds
 } = {}) {
   const raw = await fetchOddsFn(sport, { markets: markets.join(",") });
+  const byId = new Map((raw || []).map(ev => [ev.id, ev]));
   const lines = normalizeEventsMulti(raw, markets);
   const surebets = findSurebets(lines, { minMarginPct, totalStake });
 
   const cache = new Map();
   const enriched = [];
   for (const sb of surebets) {
-    enriched.push(enrichAi ? await enrich(sb, cache) : sb);
+    enriched.push(enrichAi ? await predictLine(sb, byId.get(sb.id), cache, weights) : sb);
   }
 
   let notified = 0;

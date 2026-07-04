@@ -17,15 +17,19 @@ function printSurebet(sb, i) {
   console.log(`   Вилка: маржа ${sb.arb.marginPct}%, ROI ${sb.arb.roi}%, ` +
     `банк ${sb.arb.invested} → гаранта ${sb.arb.guaranteedPayout} (профит ${sb.arb.profit})`);
   sb.arb.legs.forEach(l => console.log(fmtLeg(l)));
-  if (sb.ai) {
-    console.log(`   ИИ: нужнее победа — ${sb.ai.needsWin}; вероятный исход — ${sb.ai.likelyOutcome} ` +
-      `(П1 ${Math.round(sb.ai.probs.home * 100)}% / Х ${Math.round(sb.ai.probs.draw * 100)}% / ` +
-      `П2 ${Math.round(sb.ai.probs.away * 100)}%), уверенность ${sb.ai.confidence}%`);
-    if (sb.ai.reasoning) console.log(`       ${sb.ai.reasoning}`);
-    const top = sb.ai.edges?.[0];
-    if (top && top.edgePct > 0) {
-      console.log(`       value: ${top.name} @ ${top.odds} — перевес +${top.edgePct}%`);
+  const pred = sb.prediction;
+  if (pred) {
+    const parts = Object.entries(pred.probs)
+      .map(([k, v]) => `${k} ${Math.round(v * 100)}%`).join(" / ");
+    const agree = pred.agreement != null ? `, согласие источников ${Math.round(pred.agreement * 100)}%` : "";
+    console.log(`   Прогноз [${pred.sources.join("+")}]: ${parts}${agree}`);
+    if (pred.top && pred.top.edgePct > 0) {
+      console.log(`       value: ${pred.top.name} @ ${pred.top.odds} — перевес +${pred.top.edgePct}%`);
     }
+  }
+  if (sb.ai) {
+    console.log(`   ИИ: нужнее победа — ${sb.ai.needsWin}; вероятный исход — ${sb.ai.likelyOutcome}` +
+      (sb.ai.reasoning ? ` (${sb.ai.reasoning})` : ""));
   }
 }
 

@@ -32,6 +32,37 @@ export async function standings(leagueId, season) {
   return data?.response?.[0]?.league?.standings?.[0] || [];
 }
 
+// Средние голы команды по последним матчам (для модели Пуассона).
+// fixtures — ответ teamForm(); teamName — имя команды. null, если нет данных.
+export function teamGoalAverages(fixtures = [], teamName) {
+  let scored = 0, conceded = 0, n = 0;
+  for (const f of fixtures) {
+    const g = f.goals || {};
+    if (g.home == null || g.away == null) continue;
+    const isHome = f.teams?.home?.name === teamName;
+    scored += isHome ? g.home : g.away;
+    conceded += isHome ? g.away : g.home;
+    n += 1;
+  }
+  if (!n) return null;
+  return { scoredAvg: scored / n, concededAvg: conceded / n, games: n };
+}
+
+// Результат завершённого матча по fixture id (для грейдинга прогноза).
+// Возвращает { status, home, away, outcome } или null. outcome: home|draw|away.
+export async function fixtureResult(fixtureId) {
+  const url = `${config.apiFootballBase}/fixtures?id=${fixtureId}`;
+  const data = await getJson(url, { headers: headers(), label: "af/result" });
+  const f = data?.response?.[0];
+  if (!f) return null;
+  const status = f.fixture?.status?.short;
+  if (status !== "FT" && status !== "AET" && status !== "PEN") return { status, outcome: null };
+  const g = f.goals || {};
+  if (g.home == null || g.away == null) return { status, outcome: null };
+  const outcome = g.home > g.away ? "home" : g.home < g.away ? "away" : "draw";
+  return { status, home: g.home, away: g.away, outcome };
+}
+
 // Свести контекст матча в компактную сводку для промпта ИИ.
 // Возвращает строку вида: форма, позиции, очки — то, из чего модель делает вывод.
 export function summarizeContext({ home, away, homeForm = [], awayForm = [], table = [] } = {}) {
