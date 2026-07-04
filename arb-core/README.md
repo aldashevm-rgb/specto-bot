@@ -7,6 +7,32 @@
 
 > Отдельный модуль внутри репозитория, не связан с WhatsApp-ботом SPECTO.
 
+## Дашборд (одна команда)
+
+`npm run dashboard [sport]` за один запрос коэффициентов показывает всё:
+вилки, value-ставки с размером ставки по Кельли, точность прогноза и активные
+настройки. Управление флагами (через `--`):
+
+```bash
+npm run dashboard soccer_epl                    # вилки + value + ставки + точность
+npm run dashboard upcoming -- --sharp           # только резкие конторы
+npm run dashboard soccer_epl -- --hours=0 --bank=5000   # без окна, банк 5000
+npm run dashboard soccer_epl -- --ai --min-edge=3       # + Пуассон/LLM, порог 3%
+```
+
+| Флаг | Что делает |
+|---|---|
+| `<sport>` | ключ вида: `soccer_epl`, `upcoming`, `basketball_nba`, … |
+| `--hours=N` | окно до матча, ч (`0` = без окна) |
+| `--bank=N` | банк для расчёта ставки (Кельли) |
+| `--min-edge=N` | порог value-перевеса у резких контор, % |
+| `--sharp` | только value у резких контор (их не режут) |
+| `--ai` | + модель Пуассона и LLM (нужны ключи) |
+| `--no-log` | не писать прогнозы в лог |
+
+Постоянные настройки — в `.env`. Точность по факту — отдельной командой
+`npm run grade` (после того как матчи сыграны).
+
 ## Как это работает
 
 ```
@@ -67,6 +93,7 @@ Node.js 18+.
 ```bash
 cd arb-core
 cp .env.example .env     # вписать ODDS_API_KEY (и по желанию API_FOOTBALL_KEY, ANTHROPIC_API_KEY)
+npm run dashboard soccer_epl   # ★ всё в одном: вилки + value + ставки + точность
 npm run demo             # показать работу на встроенных данных (без ключей/сети)
 npm run scan             # вилки (surebet) по ближайшим событиям (upcoming)
 npm run scan soccer_epl  # конкретный вид спорта / лига
