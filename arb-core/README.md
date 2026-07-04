@@ -67,9 +67,17 @@ Node.js 18+.
 ```bash
 cd arb-core
 cp .env.example .env     # вписать ODDS_API_KEY (и по желанию API_FOOTBALL_KEY, ANTHROPIC_API_KEY)
-npm run scan             # скан ближайших событий (upcoming)
+npm run demo             # показать работу на встроенных данных (без ключей/сети)
+npm run scan             # вилки (surebet) по ближайшим событиям (upcoming)
 npm run scan soccer_epl  # конкретный вид спорта / лига
+npm run value soccer_epl # value-ставки: где цена выгоднее честной вероятности рынка
+npm run value upcoming --ai  # value + модель Пуассона и LLM (нужны ключи)
 ```
+
+Файл `.env` подхватывается автоматически. **Вилки vs value:** чистые вилки
+(`scan`) редки и живут секунды; value-ставки (`value`) — где лучший коэффициент
+выгоднее консенсуса рынка (плюсовое ожидание) — встречаются регулярно и есть
+даже когда вилок нет.
 
 Без `ODDS_API_KEY` скан не запустится (нужны реальные коэффициенты). Без
 `ANTHROPIC_API_KEY` вилки всё равно находятся — просто без ИИ-разбора.

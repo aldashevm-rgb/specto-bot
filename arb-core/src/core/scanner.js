@@ -79,26 +79,30 @@ async function gatherOnce(cache, line) {
 }
 
 // Прогноз для одной линии: собрать источники и смешать.
-async function predictLine(line, rawEvent, cache, weights) {
-  const { stats, ai } = await gatherOnce(cache, line);
-
+// consensusOnly=true — только консенсус рынка (мгновенно, без затрат на
+// API-Football/Claude); нужен для сканирования value по всем событиям.
+async function predictLine(line, rawEvent, cache, weights, { consensusOnly = false } = {}) {
   const sources = [];
 
   // 1) Консенсус рынка (все БК без маржи) — по именам исходов линии.
   const consensus = rawEvent ? marketConsensus(rawEvent, line.market) : null;
   if (consensus) sources.push({ label: "consensus", probs: consensus, weight: weights.consensus });
 
-  // 2) Модель Пуассона.
-  const model = modelProbs(line, stats.homeAvg, stats.awayAvg);
-  if (model) sources.push({ label: "model", probs: model, weight: weights.model });
-
-  // 3) LLM (только для h2h — даёт вероятности 1X2).
-  if (ai && line.market === "h2h") {
-    sources.push({ label: "ai", probs: hdaToNamed(ai.probs, line.home, line.away), weight: weights.ai });
+  let ai = null;
+  if (!consensusOnly) {
+    const bundle = await gatherOnce(cache, line);
+    ai = bundle.ai;
+    // 2) Модель Пуассона.
+    const model = modelProbs(line, bundle.stats.homeAvg, bundle.stats.awayAvg);
+    if (model) sources.push({ label: "model", probs: model, weight: weights.model });
+    // 3) LLM (только для h2h — даёт вероятности 1X2).
+    if (ai && line.market === "h2h") {
+      sources.push({ label: "ai", probs: hdaToNamed(ai.probs, line.home, line.away), weight: weights.ai });
+    }
   }
 
   const prediction = buildPrediction({ sources, bestOutcomes: line.bestOutcomes });
-  return { ...line, ai: ai || null, prediction };
+  return { ...line, ai, prediction };
 }
 
 // Полный скан. opts:
@@ -136,4 +140,32 @@ export async function scan({
   if (store) logged = await logSurebets(enriched);
 
   return { scanned: lines.length, found: enriched.length, notified, logged, surebets: enriched };
+}
+
+// Скан value-ставок: прогноз по ВСЕМ событиям (не только вилкам) и отбор тех,
+// где лучший коэффициент выгоднее честной вероятности рынка (перевес ≥ порога).
+// Работает даже когда чистых вилок нет. По умолчанию — только консенсус рынка
+// (мгновенно, без затрат на статистику/LLM); enrichAi=true добавляет Пуассон+LLM.
+// opts: sport, markets, minEdgePct, enrichAi, weights, fetchOddsFn.
+export async function scanValue({
+  sport = "upcoming",
+  markets = config.markets,
+  minEdgePct = config.minEdgePct,
+  enrichAi = false,
+  weights = config.weights || DEFAULT_WEIGHTS,
+  fetchOddsFn = fetchOdds
+} = {}) {
+  const raw = await fetchOddsFn(sport, { markets: markets.join(",") });
+  const byId = new Map((raw || []).map(ev => [ev.id, ev]));
+  const lines = normalizeEventsMulti(raw, markets);
+
+  const cache = new Map();
+  const values = [];
+  for (const line of lines) {
+    const p = await predictLine(line, byId.get(line.id), cache, weights, { consensusOnly: !enrichAi });
+    const top = p.prediction && p.prediction.top;
+    if (top && top.edgePct >= minEdgePct) values.push({ ...p, valueBet: top });
+  }
+  values.sort((a, b) => b.valueBet.edgePct - a.valueBet.edgePct);
+  return { scanned: lines.length, found: values.length, values };
 }
