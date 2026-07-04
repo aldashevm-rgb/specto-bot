@@ -37,10 +37,12 @@ export function overroundPct(oddsArr = []) {
 // point — для рынков с линией (тоталы). Консенсус ОБЯЗАН считаться в пределах
 // одной линии: нельзя мешать Тотал 2.5 и Тотал 3.5. Если задан, берём у каждого
 // БК только исходы с этим point (h2h — point не нужен).
-export function marketConsensus(event, marketKey = "h2h", point = null) {
+// weightFn(title) → вес конторы в консенсусе (резким даём больше). null = равный
+// вес. Взвешивание в пользу шарп-контор делает «честную» вероятность точнее.
+export function marketConsensus(event, marketKey = "h2h", point = null, weightFn = null) {
   if (!event || !Array.isArray(event.bookmakers)) return null;
   const acc = {};
-  const cnt = {};
+  const cnt = {}; // сумма весов по исходу (для взвешенного среднего)
   for (const bk of event.bookmakers) {
     const market = (bk.markets || []).find(m => m.key === marketKey);
     if (!market) continue;
@@ -49,9 +51,11 @@ export function marketConsensus(event, marketKey = "h2h", point = null) {
     if (ocs.length < 2) continue;
     const nv = noVigByName(ocs.map(o => ({ name: o.name, odds: o.price })));
     if (!nv) continue;
+    const w = weightFn ? Math.max(0, Number(weightFn(bk.title || bk.key)) || 0) : 1;
+    if (w <= 0) continue;
     for (const name of Object.keys(nv)) {
-      acc[name] = (acc[name] || 0) + nv[name];
-      cnt[name] = (cnt[name] || 0) + 1;
+      acc[name] = (acc[name] || 0) + w * nv[name];
+      cnt[name] = (cnt[name] || 0) + w;
     }
   }
   const names = Object.keys(acc);

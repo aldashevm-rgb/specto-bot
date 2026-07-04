@@ -18,6 +18,7 @@ import { normalizeEventsMulti } from "./normalize.js";
 import { findSurebets } from "./arbitrage.js";
 import { readMatch } from "./motivation.js";
 import { marketConsensus } from "./devig.js";
+import { bookTier, bookWeight } from "./sharpness.js";
 import { lambdasFromAverages, outcomeProbs, totalsProbs } from "./poisson.js";
 import { buildPrediction, hdaToNamed, ouToNamed, DEFAULT_WEIGHTS } from "./predict.js";
 import { notifySurebets } from "../notify/telegram.js";
@@ -89,8 +90,10 @@ async function predictLine(line, rawEvent, cache, weights, { consensusOnly = fal
   const sources = [];
 
   // 1) Консенсус рынка (все БК без маржи) — строго в пределах линии события
-  //    (для тоталов — по конкретному point, иначе смешаются разные линии).
-  const consensus = rawEvent ? marketConsensus(rawEvent, line.market, line.point ?? null) : null;
+  //    (для тоталов — по конкретному point), с весом в пользу резких контор.
+  const consensus = rawEvent
+    ? marketConsensus(rawEvent, line.market, line.point ?? null, bookWeight)
+    : null;
   if (consensus) sources.push({ label: "consensus", probs: consensus, weight: weights.consensus });
 
   let ai = null;
@@ -151,11 +154,15 @@ export async function scan({
 // где лучший коэффициент выгоднее честной вероятности рынка (перевес ≥ порога).
 // Работает даже когда чистых вилок нет. По умолчанию — только консенсус рынка
 // (мгновенно, без затрат на статистику/LLM); enrichAi=true добавляет Пуассон+LLM.
-// opts: sport, markets, minEdgePct, enrichAi, weights, fetchOddsFn.
+// Порог value зависит от резкости конторы, где стоит ставка: у софт-контор
+// щедрость обманчива → требуем перевес выше; у резких — обычный порог.
+// opts: sport, markets, minEdgePct, minEdgeSoftPct, sharpOnly, enrichAi, weights, fetchOddsFn.
 export async function scanValue({
   sport = "upcoming",
   markets = config.markets,
   minEdgePct = config.minEdgePct,
+  minEdgeSoftPct = config.minEdgeSoftPct,
+  sharpOnly = false,
   enrichAi = false,
   weights = config.weights || DEFAULT_WEIGHTS,
   fetchOddsFn = fetchOdds
@@ -169,7 +176,12 @@ export async function scanValue({
   for (const line of lines) {
     const p = await predictLine(line, byId.get(line.id), cache, weights, { consensusOnly: !enrichAi });
     const top = p.prediction && p.prediction.top;
-    if (top && top.edgePct >= minEdgePct) values.push({ ...p, valueBet: top });
+    if (!top) continue;
+    const tier = bookTier(top.bookmaker);
+    if (sharpOnly && tier !== "sharp") continue;
+    const threshold = tier === "sharp" ? minEdgePct : minEdgeSoftPct;
+    if (top.edgePct < threshold) continue;
+    values.push({ ...p, valueBet: { ...top, tier } });
   }
   values.sort((a, b) => b.valueBet.edgePct - a.valueBet.edgePct);
   return { scanned: lines.length, found: values.length, values };

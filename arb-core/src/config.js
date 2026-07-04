@@ -49,7 +49,8 @@ export const config = {
 
   // Параметры сканера.
   minMarginPct: Number(process.env.ARB_MIN_MARGIN) || 0.5, // мин. маржа вилки, %
-  minEdgePct: Number(process.env.ARB_MIN_EDGE) || 2,       // мин. value-перевес, %
+  minEdgePct: Number(process.env.ARB_MIN_EDGE) || 2,       // мин. value-перевес у резких контор, %
+  minEdgeSoftPct: Number(process.env.ARB_MIN_EDGE_SOFT) || 4, // выше порог у софт-контор, %
   totalStake: Number(process.env.ARB_STAKE) || 1000,       // банк на событие
   region: process.env.ODDS_REGION || "eu",                 // регион БК
   markets: parseMarkets(process.env.ODDS_MARKET || "h2h,totals") // рынки: h2h,totals,spreads

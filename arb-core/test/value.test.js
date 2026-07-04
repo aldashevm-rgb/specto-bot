@@ -31,7 +31,7 @@ test("scanValue: находит value (лучший коэф. выгоднее �
 
 test("scanValue: высокий порог отсекает всё", async () => {
   const r = await scanValue({
-    sport: "soccer", markets: ["h2h"], minEdgePct: 99,
+    sport: "soccer", markets: ["h2h"], minEdgePct: 99, minEdgeSoftPct: 99,
     enrichAi: false, fetchOddsFn: async () => SAMPLE
   });
   assert.equal(r.found, 0);
@@ -39,7 +39,7 @@ test("scanValue: высокий порог отсекает всё", async () =>
 
 test("scanValue: сортировка по убыванию перевеса", async () => {
   const r = await scanValue({
-    sport: "soccer", markets: ["h2h"], minEdgePct: 0,
+    sport: "soccer", markets: ["h2h"], minEdgePct: 0, minEdgeSoftPct: 0,
     enrichAi: false, fetchOddsFn: async () => SAMPLE
   });
   for (let i = 1; i < r.values.length; i++) {
