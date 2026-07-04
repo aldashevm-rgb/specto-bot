@@ -12,6 +12,7 @@
     "value": "node src/value.js",
     "grade": "node src/grade.js",
     "dashboard": "node src/dashboard.js",
+    "web": "node src/web.js",
     "demo": "node src/demo.js",
     "test": "node --test"
   }
