@@ -38,10 +38,12 @@ export const config = {
   supabaseTable: process.env.ARB_TABLE || "arb_surebets",
 
   // Веса ансамбля прогноза: консенсус рынка / модель Пуассона / LLM.
+  // Консенсус рынка — самый точный предиктор, поэтому доминирует. Пуассон на
+  // форме из 5 матчей слаб → малый вес, чтобы не раздувать фейковые перевесы.
   weights: {
-    consensus: Number(process.env.ARB_W_CONSENSUS ?? 0.5),
-    model: Number(process.env.ARB_W_MODEL ?? 0.3),
-    ai: Number(process.env.ARB_W_AI ?? 0.2)
+    consensus: Number(process.env.ARB_W_CONSENSUS ?? 0.7),
+    model: Number(process.env.ARB_W_MODEL ?? 0.15),
+    ai: Number(process.env.ARB_W_AI ?? 0.15)
   },
   poissonMaxGoals: Number(process.env.ARB_POISSON_MAXGOALS) || 10,
 

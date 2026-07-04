@@ -46,8 +46,12 @@ async function gatherStats(home, away) {
 }
 
 // Модель Пуассона → вероятности исходов для конкретной линии (или null).
+// Гейт: минимум 3 сыгранных матча у каждой команды — иначе средние по голам
+// слишком шумные и модель врёт (особенно на межлиговых матчах).
+const MODEL_MIN_GAMES = 3;
 function modelProbs(line, homeAvg, awayAvg) {
   if (!homeAvg || !awayAvg) return null;
+  if ((homeAvg.games || 0) < MODEL_MIN_GAMES || (awayAvg.games || 0) < MODEL_MIN_GAMES) return null;
   const lam = lambdasFromAverages({
     homeScoredAvg: homeAvg.scoredAvg, homeConcededAvg: homeAvg.concededAvg,
     awayScoredAvg: awayAvg.scoredAvg, awayConcededAvg: awayAvg.concededAvg
