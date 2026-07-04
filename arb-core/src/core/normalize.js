@@ -2,17 +2,17 @@
 // каждому исходу среди всех БК. Чистые функции — тестируются без сети.
 //
 // Вход — формат The Odds API (событие с массивом bookmakers[].markets[].outcomes[]).
-// Выход — компактное событие с bestOutcomes: по одному лучшему коэф. на исход,
-// с указанием, у какого букмекера он взят (это и есть кандидаты в вилку).
+// Выход — «линии» с bestOutcomes: по одному лучшему коэф. на исход (кандидаты в вилку).
+//
+// Важно про рынки с точкой (тоталы/форы): арбитраж считается ТОЛЬКО в пределах
+// одной линии. Нельзя смешивать «Тотал 2.5» и «Тотал 3.0» — это разные рынки.
+// Для фор пара «мирроринг»: хозяева с форой -h против гостей с форой +h.
 
-// Из одного события The Odds API берём указанный рынок (по умолчанию h2h —
-// «победа1 / ничья / победа2») и по каждому исходу находим максимальный коэф.
-// Возвращает { id, sport, commence, home, away, market, bestOutcomes:[...] }.
+// --- h2h (1X2): по каждому исходу — максимальный коэффициент среди БК ---
 export function bestOutcomes(event, marketKey = "h2h") {
   if (!event || !Array.isArray(event.bookmakers)) return null;
 
-  // name → { name, odds, bookmaker } с лучшим (максимальным) коэффициентом.
-  const best = new Map();
+  const best = new Map(); // name → { name, odds, bookmaker }
   for (const bk of event.bookmakers) {
     const market = (bk.markets || []).find(m => m.key === marketKey);
     if (!market) continue;
@@ -21,12 +21,7 @@ export function bestOutcomes(event, marketKey = "h2h") {
       if (!Number.isFinite(odds) || odds <= 1) continue;
       const prev = best.get(oc.name);
       if (!prev || odds > prev.odds) {
-        best.set(oc.name, {
-          name: oc.name,
-          odds,
-          point: oc.point, // для тоталов/фор (если рынок не h2h)
-          bookmaker: bk.title || bk.key
-        });
+        best.set(oc.name, { name: oc.name, odds, bookmaker: bk.title || bk.key });
       }
     }
   }
@@ -43,7 +38,102 @@ export function bestOutcomes(event, marketKey = "h2h") {
   };
 }
 
-// Пакетная нормализация массива событий. Пропускает те, где нет полного рынка.
+// --- Тоталы (Over/Under): лучший коэф. на каждую сторону В ПРЕДЕЛАХ линии ---
+function totalsLines(event) {
+  const byPoint = new Map(); // point → { Over:{best}, Under:{best} }
+  for (const bk of event.bookmakers || []) {
+    const market = (bk.markets || []).find(m => m.key === "totals");
+    if (!market) continue;
+    for (const oc of market.outcomes || []) {
+      const odds = Number(oc.price);
+      if (!Number.isFinite(odds) || odds <= 1 || oc.point == null) continue;
+      const slot = byPoint.get(oc.point) || {};
+      const cur = slot[oc.name];
+      if (!cur || odds > cur.odds) {
+        slot[oc.name] = { name: oc.name, odds, point: oc.point, bookmaker: bk.title || bk.key };
+      }
+      byPoint.set(oc.point, slot);
+    }
+  }
+  const lines = [];
+  for (const [point, slot] of byPoint) {
+    if (slot.Over && slot.Under) {
+      lines.push({ line: `Тотал ${point}`, point, bestOutcomes: [slot.Over, slot.Under] });
+    }
+  }
+  return lines;
+}
+
+// --- Форы (spreads): хозяева @ -h против гостей @ +h (зеркальная пара) ---
+function spreadsLines(event) {
+  const home = event.home_team;
+  const away = event.away_team;
+  const homeBest = new Map(); // point → {best}
+  const awayBest = new Map();
+  for (const bk of event.bookmakers || []) {
+    const market = (bk.markets || []).find(m => m.key === "spreads");
+    if (!market) continue;
+    for (const oc of market.outcomes || []) {
+      const odds = Number(oc.price);
+      if (!Number.isFinite(odds) || odds <= 1 || oc.point == null) continue;
+      const target = oc.name === home ? homeBest : oc.name === away ? awayBest : null;
+      if (!target) continue;
+      const cur = target.get(oc.point);
+      if (!cur || odds > cur.odds) {
+        target.set(oc.point, { name: oc.name, odds, point: oc.point, bookmaker: bk.title || bk.key });
+      }
+    }
+  }
+  const lines = [];
+  for (const [ph, h] of homeBest) {
+    const a = awayBest.get(-ph); // зеркальная фора у гостей
+    if (a) lines.push({ line: `Фора ${ph > 0 ? "+" : ""}${ph}`, point: ph, bestOutcomes: [h, a] });
+  }
+  return lines;
+}
+
+// Единая нормализация одного события в набор «линий» под указанный рынок.
+// Возвращает массив линий (для h2h — одна линия), каждая пригодна для
+// computeArbitrage. Пустой массив, если полного рынка нет.
+export function normalizeLines(event, marketKey = "h2h") {
+  if (!event || !Array.isArray(event.bookmakers)) return [];
+  const meta = {
+    id: event.id,
+    sport: event.sport_key || event.sport,
+    commence: event.commence_time,
+    home: event.home_team,
+    away: event.away_team,
+    market: marketKey
+  };
+  let lines;
+  if (marketKey === "totals") lines = totalsLines(event);
+  else if (marketKey === "spreads") lines = spreadsLines(event);
+  else {
+    const h = bestOutcomes(event, marketKey);
+    lines = h ? [{ line: null, point: null, bestOutcomes: h.bestOutcomes }] : [];
+  }
+  return lines.map(l => ({
+    ...meta,
+    line: l.line,
+    point: l.point,
+    // Уникальный ключ линии — чтобы не путать разные точки одного события.
+    lineId: `${meta.id}:${marketKey}:${l.point ?? "-"}`,
+    bestOutcomes: l.bestOutcomes
+  }));
+}
+
+// Пакетная нормализация: массив событий × список рынков → плоский список линий.
+export function normalizeEventsMulti(events = [], markets = ["h2h"]) {
+  const out = [];
+  for (const ev of events) {
+    for (const mk of markets) {
+      for (const line of normalizeLines(ev, mk)) out.push(line);
+    }
+  }
+  return out;
+}
+
+// Обратная совместимость: только h2h, по одной записи на событие.
 export function normalizeEvents(events = [], marketKey = "h2h") {
   const out = [];
   for (const ev of events) {

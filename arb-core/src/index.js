@@ -4,7 +4,7 @@
 // Флаги окружения см. в .env.example / config.js.
 
 import { scan } from "./core/scanner.js";
-import { haveOddsApi } from "./config.js";
+import { haveOddsApi, config } from "./config.js";
 
 function fmtLeg(l) {
   return `    ${l.name} @ ${l.odds} (${l.bookmaker}) → ставка ${l.stake}, выплата ${l.payout}`;
@@ -12,7 +12,8 @@ function fmtLeg(l) {
 
 function printSurebet(sb, i) {
   const kickoff = sb.commence ? new Date(sb.commence).toLocaleString("ru-RU") : "?";
-  console.log(`\n${i + 1}. ${sb.home} — ${sb.away}  [${sb.sport}]  ${kickoff}`);
+  const lineTag = sb.line ? `  {${sb.line}}` : "";
+  console.log(`\n${i + 1}. ${sb.home} — ${sb.away}  [${sb.sport} · ${sb.market}]${lineTag}  ${kickoff}`);
   console.log(`   Вилка: маржа ${sb.arb.marginPct}%, ROI ${sb.arb.roi}%, ` +
     `банк ${sb.arb.invested} → гаранта ${sb.arb.guaranteedPayout} (профит ${sb.arb.profit})`);
   sb.arb.legs.forEach(l => console.log(fmtLeg(l)));
@@ -34,9 +35,10 @@ async function main() {
     process.exit(1);
   }
   const sport = process.argv[2] || "upcoming";
-  console.log(`Скан вилок: ${sport} ...`);
-  const { scanned, found, surebets } = await scan({ sport });
-  console.log(`Проверено событий: ${scanned}. Найдено вилок: ${found}.`);
+  console.log(`Скан вилок: ${sport} · рынки [${config.markets.join(", ")}] ...`);
+  const { scanned, found, notified, logged, surebets } = await scan({ sport });
+  console.log(`Проверено линий: ${scanned}. Найдено вилок: ${found}. ` +
+    `Уведомлено: ${notified}. Записано в БД: ${logged}.`);
   surebets.forEach(printSurebet);
   if (!found) console.log("Прибыльных вилок не найдено — попробуй другой вид спорта/регион.");
 }
