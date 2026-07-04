@@ -19,6 +19,27 @@
 npm run web        # → http://localhost:3010, управление кнопками на странице
 ```
 
+## Вотчер + Telegram-уведомления
+
+`npm run watch [sport]` периодически сканирует и шлёт в Telegram **как только
+появляется новая ставка** (вилка или value выше порога). Дедуп — одна линия не
+спамит повторно. Без Telegram печатает находки в консоль.
+
+```bash
+npm run watch upcoming                 # интервал по умолчанию (30 мин)
+npm run watch soccer_epl -- --every=15 --sharp   # каждые 15 мин, только резкие
+```
+
+**Настройка Telegram:**
+1. Напиши [@BotFather](https://t.me/BotFather) → `/newbot` → получи `TELEGRAM_BOT_TOKEN`.
+2. Узнай `chat_id`: напиши своему боту любое сообщение, открой
+   `https://api.telegram.org/bot<ТОКЕН>/getUpdates` → поле `chat.id`.
+3. Впиши оба в `.env` (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) и запусти `npm run watch`.
+
+⚠️ **Квота.** Каждый цикл — 1 запрос к The Odds API. Free-тариф (~500/мес) не
+тянет непрерывный вотч: при старте печатается оценка запросов/сутки. Запускай
+точечно перед турами или подними интервал (`--every=`, `ARB_WATCH_MS`) / тариф.
+
 ## Дашборд (терминал, одна команда)
 
 `npm run dashboard [sport]` за один запрос коэффициентов показывает всё:

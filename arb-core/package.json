@@ -13,6 +13,7 @@
     "grade": "node src/grade.js",
     "dashboard": "node src/dashboard.js",
     "web": "node src/web.js",
+    "watch": "node src/watch.js",
     "demo": "node src/demo.js",
     "test": "node --test"
   }
