@@ -110,3 +110,35 @@ export async function notifyValues(values = [], kelly = null) {
   }
   return sent;
 }
+
+// Результат сыгравшей ставки → HTML-текст («сыграла/не зашла» + деньги).
+// rec — заграженная запись лога (с valueBet, winner, bet_won, счётом).
+export function formatGradeResult(rec, kelly = null) {
+  const b = rec.valueBet || {};
+  const won = rec.bet_won === true;
+  const head = won ? "✅ <b>Сыграла</b>" : "❌ <b>Не зашла</b>";
+  const score = (rec.actual_home != null && rec.actual_away != null)
+    ? `  ${rec.actual_home}:${rec.actual_away}` : "";
+  let money = "";
+  const p = rec.probs ? rec.probs[b.name] : null;
+  if (p != null && kelly) {
+    const k = kellyStake(p, b.odds, kelly);
+    const profit = won ? k.stake * (Number(b.odds) - 1) : -k.stake;
+    const r2 = Math.round(profit * 100) / 100;
+    money = `\nСтавка ${k.stake} → <b>${r2 >= 0 ? "+" : ""}${r2}</b>`;
+  }
+  return `${head}${score}\n${esc(rec.home)} — ${esc(rec.away)}\n` +
+    `➤ ${esc(b.name)} @ ${b.odds} (${esc(b.bookmaker)}) · факт: ${esc(rec.winner)}${money}`;
+}
+
+// Разослать результаты по заграженным value-ставкам. Возвращает число отправленных.
+export async function notifyResults(records = [], kelly = null) {
+  if (!haveTelegram()) return 0;
+  let sent = 0;
+  for (const r of records) {
+    if (r.valueBet && r.bet_won != null) {
+      if (await sendTelegram(formatGradeResult(r, kelly))) sent += 1;
+    }
+  }
+  return sent;
+}

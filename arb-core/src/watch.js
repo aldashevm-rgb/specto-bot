@@ -13,6 +13,7 @@ import { scan, scanValue } from "./core/scanner.js";
 import { fetchOdds } from "./sources/oddsApi.js";
 import { notifySurebets, notifyValues } from "./notify/telegram.js";
 import { surebetKey, valueKey, pickNew } from "./notify/dedup.js";
+import { runGrade } from "./store/gradeRun.js";
 import { haveOddsApi, haveTelegram, config } from "./config.js";
 
 function flagVal(flags, name, fallback) {
@@ -54,6 +55,17 @@ async function tick(opts, seen) {
     const s = await notifySurebets(newSure);
     const vv = await notifyValues(newVal, kelly);
     if (s + vv) console.log(`  → отправлено в Telegram: ${s + vv}`);
+  }
+
+  // Проверяем сыгравшие ставки и шлём результат «сыграла/не зашла».
+  // Счёт тянется только по уже начавшимся матчам (экономит квоту).
+  try {
+    const g = await runGrade({ notify: haveTelegram(), log: (m) => console.log(`  ${m}`) });
+    if (g.gradedNow) {
+      console.log(`  ✔ оценено сыгравших: ${g.gradedNow}${g.sent ? ` · результатов в Telegram: ${g.sent}` : ""}`);
+    }
+  } catch (err) {
+    console.error("  Ошибка грейдинга:", err.message);
   }
 }
 
