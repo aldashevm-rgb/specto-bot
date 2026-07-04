@@ -1,5 +1,11 @@
 // Конфигурация ядра из переменных окружения. Одна точка правды.
 
+import { loadEnv } from "./util/loadEnv.js";
+
+// Подхватываем arb-core/.env (если есть) до чтения переменных ниже.
+// Реальные переменные окружения имеют приоритет над файлом.
+loadEnv(new URL("../.env", import.meta.url));
+
 // "h2h,totals,spreads" → ["h2h","totals","spreads"]
 function parseMarkets(raw) {
   return String(raw || "h2h")
