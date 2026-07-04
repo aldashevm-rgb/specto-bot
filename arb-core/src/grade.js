@@ -16,7 +16,10 @@ async function main() {
     console.error("Нужен ODDS_API_KEY (см. .env.example).");
     process.exit(1);
   }
-  const sportArg = process.argv.slice(2).find(a => !a.startsWith("--"));
+  // "upcoming" — не реальный вид спорта (сборная выдача), в логе у записей
+  // настоящие ключи, поэтому как фильтр он бессмыслен → трактуем как «все».
+  const rawArg = process.argv.slice(2).find(a => !a.startsWith("--"));
+  const sportArg = rawArg && rawArg !== "upcoming" ? rawArg : null;
 
   const records = readLog(config.logFile);
   if (!records.length) {
@@ -84,7 +87,10 @@ async function main() {
         `ROI ${sign}${summary.betRoiPct}%  (на дистанции; малые выборки шумят)`);
     }
   } else {
-    console.log("Пока нечего сводить — матчи ещё не завершились. Запусти позже.");
+    const times = pending.map(r => r.commence).filter(Boolean).sort();
+    const soon = times.length ? ` Ближайший матч: ${new Date(times[0]).toLocaleString("ru-RU")}.` : "";
+    console.log(`Пока нечего сводить — матчи ещё не сыграны.${soon} ` +
+      `Запусти grade после игр (в пределах ${config.scoresDaysFrom} сут).`);
   }
 }
 

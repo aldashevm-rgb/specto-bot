@@ -57,6 +57,11 @@ export const config = {
   // Автогрейдинг: локальный лог прогнозов и окно результатов The Odds API.
   logFile: process.env.ARB_LOG_FILE || fileURLToPath(new URL("../predictions.jsonl", import.meta.url)),
   scoresDaysFrom: Number(process.env.ARB_SCORES_DAYS) || 3, // за сколько суток брать результаты (1–3)
+
+  // Kelly-стейкинг: размер ставки от банка для value-ставок.
+  bankroll: Number(process.env.ARB_BANKROLL) || 1000,
+  kellyFraction: Number(process.env.ARB_KELLY_FRACTION ?? 0.25),   // четверть-Кельли
+  kellyMaxFraction: Number(process.env.ARB_KELLY_MAX ?? 0.05),     // потолок 5% банка/ставка
   totalStake: Number(process.env.ARB_STAKE) || 1000,       // банк на событие
   region: process.env.ODDS_REGION || "eu",                 // регион БК
   markets: parseMarkets(process.env.ODDS_MARKET || "h2h,totals") // рынки: h2h,totals,spreads
