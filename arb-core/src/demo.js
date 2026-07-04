@@ -64,6 +64,7 @@ async function main() {
     markets: ["h2h", "totals"],
     notify: false,   // без Telegram
     store: false,    // без Supabase
+    maxHours: 0,     // демо-данные показываем без окна по времени
     fetchOddsFn: async () => SAMPLE
   });
   console.log(`Проверено линий: ${scanned}. Найдено вилок: ${found}.`);

@@ -19,6 +19,7 @@ import { findSurebets } from "./arbitrage.js";
 import { readMatch } from "./motivation.js";
 import { marketConsensus } from "./devig.js";
 import { bookTier, bookWeight } from "./sharpness.js";
+import { withinWindow } from "../util/time.js";
 import { lambdasFromAverages, outcomeProbs, totalsProbs } from "./poisson.js";
 import { buildPrediction, hdaToNamed, ouToNamed, DEFAULT_WEIGHTS } from "./predict.js";
 import { notifySurebets } from "../notify/telegram.js";
@@ -128,12 +129,15 @@ export async function scan({
   enrichAi = true,
   notify = true,
   store = true,
+  maxHours = config.maxHours,
   weights = config.weights || DEFAULT_WEIGHTS,
-  fetchOddsFn = fetchOdds
+  fetchOddsFn = fetchOdds,
+  nowMs = Date.now()
 } = {}) {
   const raw = await fetchOddsFn(sport, { markets: markets.join(",") });
   const byId = new Map((raw || []).map(ev => [ev.id, ev]));
-  const lines = normalizeEventsMulti(raw, markets);
+  const lines = normalizeEventsMulti(raw, markets)
+    .filter(l => withinWindow(l.commence, nowMs, maxHours));
   const surebets = findSurebets(lines, { minMarginPct, totalStake });
 
   const cache = new Map();
@@ -147,7 +151,7 @@ export async function scan({
   if (notify) notified = await notifySurebets(enriched);
   if (store) logged = await logSurebets(enriched);
 
-  return { scanned: lines.length, found: enriched.length, notified, logged, surebets: enriched };
+  return { scanned: lines.length, found: enriched.length, notified, logged, windowHours: maxHours, surebets: enriched };
 }
 
 // Скан value-ставок: прогноз по ВСЕМ событиям (не только вилкам) и отбор тех,
@@ -164,12 +168,15 @@ export async function scanValue({
   minEdgeSoftPct = config.minEdgeSoftPct,
   sharpOnly = false,
   enrichAi = false,
+  maxHours = config.maxHours,
   weights = config.weights || DEFAULT_WEIGHTS,
-  fetchOddsFn = fetchOdds
+  fetchOddsFn = fetchOdds,
+  nowMs = Date.now()
 } = {}) {
   const raw = await fetchOddsFn(sport, { markets: markets.join(",") });
   const byId = new Map((raw || []).map(ev => [ev.id, ev]));
-  const lines = normalizeEventsMulti(raw, markets);
+  const lines = normalizeEventsMulti(raw, markets)
+    .filter(l => withinWindow(l.commence, nowMs, maxHours));
 
   const cache = new Map();
   const values = [];
@@ -184,5 +191,5 @@ export async function scanValue({
     values.push({ ...p, valueBet: { ...top, tier } });
   }
   values.sort((a, b) => b.valueBet.edgePct - a.valueBet.edgePct);
-  return { scanned: lines.length, found: values.length, values };
+  return { scanned: lines.length, found: values.length, windowHours: maxHours, values };
 }

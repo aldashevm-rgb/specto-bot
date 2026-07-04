@@ -37,14 +37,17 @@ async function main() {
   const args = process.argv.slice(2).filter(a => !a.startsWith("--"));
   const enrichAi = flags.includes("--ai");
   const sharpOnly = flags.includes("--sharp");
+  const hoursFlag = flags.find(f => f.startsWith("--hours="));
+  const maxHours = hoursFlag ? Number(hoursFlag.split("=")[1]) : config.maxHours;
   const sport = args[0] || "upcoming";
 
+  const win = maxHours > 0 ? `окно ${maxHours}ч` : "без окна";
   const mode = [enrichAi ? "+Пуассон/LLM" : "только консенсус", sharpOnly ? "только резкие конторы" : null]
     .filter(Boolean).join(" · ");
-  console.log(`Скан value: ${sport} · рынки [${config.markets.join(", ")}] · ` +
+  console.log(`Скан value: ${sport} · рынки [${config.markets.join(", ")}] · ${win} · ` +
     `порог резкие +${config.minEdgePct}% / софт +${config.minEdgeSoftPct}% · ${mode} ...`);
-  const { scanned, found, values } = await scanValue({ sport, enrichAi, sharpOnly });
-  console.log(`Проверено линий: ${scanned}. Value-ставок: ${found}.`);
+  const { scanned, found, values } = await scanValue({ sport, enrichAi, sharpOnly, maxHours });
+  console.log(`В окне линий: ${scanned}. Value-ставок: ${found}.`);
   values.forEach(printValue);
   if (!found) {
     console.log("\nНичего выше порога. Снизь планку (в .env ARB_MIN_EDGE / ARB_MIN_EDGE_SOFT) " +

@@ -44,9 +44,9 @@ const SAMPLE = [{
 
 test("scanValue --sharp: отсекает value у софт-контор", async () => {
   const all = await scanValue({ sport: "soccer", markets: ["h2h"], minEdgePct: 1, minEdgeSoftPct: 1,
-    enrichAi: false, fetchOddsFn: async () => SAMPLE });
+    enrichAi: false, maxHours: 0, fetchOddsFn: async () => SAMPLE });
   const sharp = await scanValue({ sport: "soccer", markets: ["h2h"], minEdgePct: 1, minEdgeSoftPct: 1,
-    sharpOnly: true, enrichAi: false, fetchOddsFn: async () => SAMPLE });
+    sharpOnly: true, enrichAi: false, maxHours: 0, fetchOddsFn: async () => SAMPLE });
   // В общем скане value у софта (1xBet, B@3.2) присутствует; в --sharp — нет.
   assert.ok(all.values.some(v => v.valueBet.tier === "soft"));
   assert.ok(sharp.values.every(v => v.valueBet.tier === "sharp"));
@@ -54,7 +54,7 @@ test("scanValue --sharp: отсекает value у софт-контор", async
 
 test("scanValue: у софт-контор порог выше (тот же перевес отсекается)", async () => {
   const soft = await scanValue({ sport: "soccer", markets: ["h2h"], minEdgePct: 1, minEdgeSoftPct: 50,
-    enrichAi: false, fetchOddsFn: async () => SAMPLE });
+    enrichAi: false, maxHours: 0, fetchOddsFn: async () => SAMPLE });
   // Порог для софта 50% — щедрый B у 1xBet не проходит.
   assert.ok(soft.values.every(v => v.valueBet.tier !== "soft"));
 });
