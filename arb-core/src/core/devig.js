@@ -33,14 +33,19 @@ export function overroundPct(oddsArr = []) {
 
 // Консенсус по всем БК события: для каждого БК с полным рынком снимаем маржу и
 // усредняем вероятности по исходам. Возвращает { name: prob } (сумма = 1) или null.
-export function marketConsensus(event, marketKey = "h2h") {
+//
+// point — для рынков с линией (тоталы). Консенсус ОБЯЗАН считаться в пределах
+// одной линии: нельзя мешать Тотал 2.5 и Тотал 3.5. Если задан, берём у каждого
+// БК только исходы с этим point (h2h — point не нужен).
+export function marketConsensus(event, marketKey = "h2h", point = null) {
   if (!event || !Array.isArray(event.bookmakers)) return null;
   const acc = {};
   const cnt = {};
   for (const bk of event.bookmakers) {
     const market = (bk.markets || []).find(m => m.key === marketKey);
     if (!market) continue;
-    const ocs = (market.outcomes || []).filter(o => Number(o.price) > 1);
+    let ocs = (market.outcomes || []).filter(o => Number(o.price) > 1);
+    if (point != null) ocs = ocs.filter(o => o.point === point);
     if (ocs.length < 2) continue;
     const nv = noVigByName(ocs.map(o => ({ name: o.name, odds: o.price })));
     if (!nv) continue;

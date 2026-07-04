@@ -84,8 +84,9 @@ async function gatherOnce(cache, line) {
 async function predictLine(line, rawEvent, cache, weights, { consensusOnly = false } = {}) {
   const sources = [];
 
-  // 1) Консенсус рынка (все БК без маржи) — по именам исходов линии.
-  const consensus = rawEvent ? marketConsensus(rawEvent, line.market) : null;
+  // 1) Консенсус рынка (все БК без маржи) — строго в пределах линии события
+  //    (для тоталов — по конкретному point, иначе смешаются разные линии).
+  const consensus = rawEvent ? marketConsensus(rawEvent, line.market, line.point ?? null) : null;
   if (consensus) sources.push({ label: "consensus", probs: consensus, weight: weights.consensus });
 
   let ai = null;

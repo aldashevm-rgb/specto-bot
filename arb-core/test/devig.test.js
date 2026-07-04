@@ -53,3 +53,25 @@ test("marketConsensus: null если нет полного рынка", () => {
   assert.equal(marketConsensus({ bookmakers: [] }, "h2h"), null);
   assert.equal(marketConsensus(null, "h2h"), null);
 });
+
+test("marketConsensus(totals): считает по одной линии, не смешивая точки", () => {
+  const ev = {
+    home_team: "A", away_team: "B",
+    bookmakers: [
+      { key: "b1", markets: [{ key: "totals", outcomes: [
+        { name: "Over", price: 1.90, point: 2.5 }, { name: "Under", price: 1.90, point: 2.5 } ] }] },
+      // другая линия — не должна попасть в консенсус по 2.5
+      { key: "b2", markets: [{ key: "totals", outcomes: [
+        { name: "Over", price: 1.40, point: 3.5 }, { name: "Under", price: 2.90, point: 3.5 } ] }] }
+    ]
+  };
+  const c25 = marketConsensus(ev, "totals", 2.5);
+  assert.ok(Math.abs(c25.Over - 0.5) < 1e-9);   // только b1 → 50/50
+  assert.ok(Math.abs(c25.Under - 0.5) < 1e-9);
+
+  const c35 = marketConsensus(ev, "totals", 3.5);
+  assert.ok(c35.Over > 0.6); // только b2, Over фаворит (низкий коэф.)
+
+  // Без указания линии смешал бы обе — проверяем, что фильтр реально работает:
+  assert.notEqual(Math.round(c25.Over * 100), Math.round(c35.Over * 100));
+});
