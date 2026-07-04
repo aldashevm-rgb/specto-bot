@@ -38,10 +38,14 @@ async function main() {
     console.error("Нужен ODDS_API_KEY (см. .env.example). Ключ The Odds API: https://the-odds-api.com");
     process.exit(1);
   }
-  const sport = process.argv[2] || "upcoming";
-  console.log(`Скан вилок: ${sport} · рынки [${config.markets.join(", ")}] ...`);
-  const { scanned, found, notified, logged, surebets } = await scan({ sport });
-  console.log(`Проверено линий: ${scanned}. Найдено вилок: ${found}. ` +
+  const args = process.argv.slice(2).filter(a => !a.startsWith("--"));
+  const hoursFlag = process.argv.slice(2).find(f => f.startsWith("--hours="));
+  const maxHours = hoursFlag ? Number(hoursFlag.split("=")[1]) : config.maxHours;
+  const sport = args[0] || "upcoming";
+  const win = maxHours > 0 ? `окно ${maxHours}ч` : "без окна";
+  console.log(`Скан вилок: ${sport} · рынки [${config.markets.join(", ")}] · ${win} ...`);
+  const { scanned, found, notified, logged, surebets } = await scan({ sport, maxHours });
+  console.log(`В окне линий: ${scanned}. Найдено вилок: ${found}. ` +
     `Уведомлено: ${notified}. Записано в БД: ${logged}.`);
   surebets.forEach(printSurebet);
   if (!found) console.log("Прибыльных вилок не найдено — попробуй другой вид спорта/регион.");

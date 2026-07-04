@@ -84,3 +84,68 @@ export function buildGradePatch(row, outcome, nowIso) {
     graded_at: nowIso
   };
 }
+
+// --- Грейдинг локального лога по результатам The Odds API ---
+
+// Событие /scores → { homeGoals, awayGoals } или null (не завершён/нет счёта).
+export function resultGoals(scoreEvent) {
+  if (!scoreEvent || !scoreEvent.completed || !Array.isArray(scoreEvent.scores)) return null;
+  const goalOf = name => {
+    const s = scoreEvent.scores.find(x => x.name === name);
+    return s ? Number(s.score) : NaN;
+  };
+  const hg = goalOf(scoreEvent.home_team);
+  const ag = goalOf(scoreEvent.away_team);
+  if (Number.isNaN(hg) || Number.isNaN(ag)) return null;
+  return { homeGoals: hg, awayGoals: ag };
+}
+
+// Победивший исход ПО ИМЕНИ для рынка записи (совпадает с ключами probs).
+// null — если push (тотал ровно на линии) или рынок не поддержан.
+export function winningOutcomeName(record, homeGoals, awayGoals) {
+  if (record.market === "h2h") {
+    if (homeGoals > awayGoals) return record.home;
+    if (homeGoals < awayGoals) return record.away;
+    return "Draw";
+  }
+  if (record.market === "totals" && record.point != null) {
+    const total = homeGoals + awayGoals;
+    if (total > record.point) return "Over";
+    if (total < record.point) return "Under";
+    return null; // возврат
+  }
+  return null;
+}
+
+// Оценка одной записи лога против фактического счёта. null — если оценить нельзя.
+// Возвращает { winner, brier, logLoss, correct, betWon, betProfit }.
+export function gradeLoggedRecord(record, homeGoals, awayGoals) {
+  const winner = winningOutcomeName(record, homeGoals, awayGoals);
+  if (!winner || !record.probs || record.probs[winner] == null) return null;
+  const g = gradePrediction(record.probs, winner);
+  let betWon = null, betProfit = null;
+  if (record.valueBet && record.valueBet.name) {
+    betWon = record.valueBet.name === winner;
+    betProfit = betWon ? Number(record.valueBet.odds) - 1 : -1; // на 1 ед. ставки
+  }
+  return { winner, brier: g.brier, logLoss: g.logLoss, correct: g.correct, betWon, betProfit };
+}
+
+// Свод по массиву результатов gradeLoggedRecord (null-ы отфильтровываются).
+// Brier: 0 идеально; hit rate — доля угаданных argmax; по value-ставкам — ROI.
+export function summarizeGrades(graded = []) {
+  const g = graded.filter(Boolean);
+  if (!g.length) return { count: 0 };
+  const avg = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
+  const r3 = x => Math.round(x * 1000) / 1000;
+  const bets = g.filter(x => x.betWon != null);
+  return {
+    count: g.length,
+    brier: r3(avg(g.map(x => x.brier))),
+    logLoss: r3(avg(g.map(x => x.logLoss))),
+    hitRatePct: Math.round(avg(g.map(x => (x.correct ? 1 : 0))) * 1000) / 10,
+    bets: bets.length,
+    betWins: bets.filter(x => x.betWon).length,
+    betRoiPct: bets.length ? Math.round(avg(bets.map(x => x.betProfit)) * 1000) / 10 : null
+  };
+}

@@ -48,6 +48,13 @@ test("lambdasFromAverages: атака+оборона → λ, преимущес�
   assert.ok(sym.lh > sym.la);
 });
 
+test("lambdasFromAverages: сила обороны соперника влияет на λ атаки", () => {
+  // Слабая оборона соперника (много пропускает) → выше ожидаемые голы хозяев.
+  const vsWeak = lambdasFromAverages({ homeScoredAvg: 1.5, homeConcededAvg: 1.2, awayScoredAvg: 1.2, awayConcededAvg: 2.2 });
+  const vsStrong = lambdasFromAverages({ homeScoredAvg: 1.5, homeConcededAvg: 1.2, awayScoredAvg: 1.2, awayConcededAvg: 0.6 });
+  assert.ok(vsWeak.lh > vsStrong.lh);
+});
+
 test("lambdasFromAverages: мусор → null", () => {
   assert.equal(lambdasFromAverages({ homeScoredAvg: "x", homeConcededAvg: 1, awayScoredAvg: 1, awayConcededAvg: 1 }), null);
 });

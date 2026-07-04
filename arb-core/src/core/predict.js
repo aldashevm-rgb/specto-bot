@@ -5,7 +5,7 @@ import { blendProbs, agreement } from "./blend.js";
 
 // Веса источников по умолчанию: рынок (консенсус) — сильнейший, затем модель,
 // затем LLM. Переопределяются через config.
-export const DEFAULT_WEIGHTS = { consensus: 0.5, model: 0.3, ai: 0.2 };
+export const DEFAULT_WEIGHTS = { consensus: 0.7, model: 0.15, ai: 0.15 };
 
 // probs с ключами исходов → value-перевес по каждому исходу против его коэф.
 // probsByName: { name: p }; bestOutcomes: [{name, odds, bookmaker}].

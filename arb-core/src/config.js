@@ -1,5 +1,12 @@
 // Конфигурация ядра из переменных окружения. Одна точка правды.
 
+import { fileURLToPath } from "node:url";
+import { loadEnv } from "./util/loadEnv.js";
+
+// Подхватываем arb-core/.env (если есть) до чтения переменных ниже.
+// Реальные переменные окружения имеют приоритет над файлом.
+loadEnv(new URL("../.env", import.meta.url));
+
 // "h2h,totals,spreads" → ["h2h","totals","spreads"]
 function parseMarkets(raw) {
   return String(raw || "h2h")
@@ -32,18 +39,32 @@ export const config = {
   supabaseTable: process.env.ARB_TABLE || "arb_surebets",
 
   // Веса ансамбля прогноза: консенсус рынка / модель Пуассона / LLM.
+  // Консенсус рынка — самый точный предиктор, поэтому доминирует. Пуассон на
+  // форме из 5 матчей слаб → малый вес, чтобы не раздувать фейковые перевесы.
   weights: {
-    consensus: Number(process.env.ARB_W_CONSENSUS ?? 0.5),
-    model: Number(process.env.ARB_W_MODEL ?? 0.3),
-    ai: Number(process.env.ARB_W_AI ?? 0.2)
+    consensus: Number(process.env.ARB_W_CONSENSUS ?? 0.7),
+    model: Number(process.env.ARB_W_MODEL ?? 0.15),
+    ai: Number(process.env.ARB_W_AI ?? 0.15)
   },
   poissonMaxGoals: Number(process.env.ARB_POISSON_MAXGOALS) || 10,
 
   // Параметры сканера.
   minMarginPct: Number(process.env.ARB_MIN_MARGIN) || 0.5, // мин. маржа вилки, %
+  minEdgePct: Number(process.env.ARB_MIN_EDGE) || 2,       // мин. value-перевес у резких контор, %
+  minEdgeSoftPct: Number(process.env.ARB_MIN_EDGE_SOFT) || 4, // выше порог у софт-контор, %
+  maxHours: Number(process.env.ARB_MAX_HOURS ?? 72),       // окно до матча, ч (0 = без ограничения)
+
+  // Автогрейдинг: локальный лог прогнозов и окно результатов The Odds API.
+  logFile: process.env.ARB_LOG_FILE || fileURLToPath(new URL("../predictions.jsonl", import.meta.url)),
+  scoresDaysFrom: Number(process.env.ARB_SCORES_DAYS) || 3, // за сколько суток брать результаты (1–3)
+
+  // Kelly-стейкинг: размер ставки от банка для value-ставок.
+  bankroll: Number(process.env.ARB_BANKROLL) || 1000,
+  kellyFraction: Number(process.env.ARB_KELLY_FRACTION ?? 0.25),   // четверть-Кельли
+  kellyMaxFraction: Number(process.env.ARB_KELLY_MAX ?? 0.05),     // потолок 5% банка/ставка
   totalStake: Number(process.env.ARB_STAKE) || 1000,       // банк на событие
   region: process.env.ODDS_REGION || "eu",                 // регион БК
-  markets: parseMarkets(process.env.ODDS_MARKET || "h2h")  // рынки: h2h,totals,spreads
+  markets: parseMarkets(process.env.ODDS_MARKET || "h2h,totals") // рынки: h2h,totals,spreads
 };
 
 export function haveOddsApi() {

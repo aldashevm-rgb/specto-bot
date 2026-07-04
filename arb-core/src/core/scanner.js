@@ -18,6 +18,9 @@ import { normalizeEventsMulti } from "./normalize.js";
 import { findSurebets } from "./arbitrage.js";
 import { readMatch } from "./motivation.js";
 import { marketConsensus } from "./devig.js";
+import { bookTier, bookWeight } from "./sharpness.js";
+import { withinWindow } from "../util/time.js";
+import { upsertPredictions } from "../store/localLog.js";
 import { lambdasFromAverages, outcomeProbs, totalsProbs } from "./poisson.js";
 import { buildPrediction, hdaToNamed, ouToNamed, DEFAULT_WEIGHTS } from "./predict.js";
 import { notifySurebets } from "../notify/telegram.js";
@@ -46,8 +49,12 @@ async function gatherStats(home, away) {
 }
 
 // Модель Пуассона → вероятности исходов для конкретной линии (или null).
+// Гейт: минимум 3 сыгранных матча у каждой команды — иначе средние по голам
+// слишком шумные и модель врёт (особенно на межлиговых матчах).
+const MODEL_MIN_GAMES = 3;
 function modelProbs(line, homeAvg, awayAvg) {
   if (!homeAvg || !awayAvg) return null;
+  if ((homeAvg.games || 0) < MODEL_MIN_GAMES || (awayAvg.games || 0) < MODEL_MIN_GAMES) return null;
   const lam = lambdasFromAverages({
     homeScoredAvg: homeAvg.scoredAvg, homeConcededAvg: homeAvg.concededAvg,
     awayScoredAvg: awayAvg.scoredAvg, awayConcededAvg: awayAvg.concededAvg
@@ -79,26 +86,33 @@ async function gatherOnce(cache, line) {
 }
 
 // Прогноз для одной линии: собрать источники и смешать.
-async function predictLine(line, rawEvent, cache, weights) {
-  const { stats, ai } = await gatherOnce(cache, line);
-
+// consensusOnly=true — только консенсус рынка (мгновенно, без затрат на
+// API-Football/Claude); нужен для сканирования value по всем событиям.
+async function predictLine(line, rawEvent, cache, weights, { consensusOnly = false } = {}) {
   const sources = [];
 
-  // 1) Консенсус рынка (все БК без маржи) — по именам исходов линии.
-  const consensus = rawEvent ? marketConsensus(rawEvent, line.market) : null;
+  // 1) Консенсус рынка (все БК без маржи) — строго в пределах линии события
+  //    (для тоталов — по конкретному point), с весом в пользу резких контор.
+  const consensus = rawEvent
+    ? marketConsensus(rawEvent, line.market, line.point ?? null, bookWeight)
+    : null;
   if (consensus) sources.push({ label: "consensus", probs: consensus, weight: weights.consensus });
 
-  // 2) Модель Пуассона.
-  const model = modelProbs(line, stats.homeAvg, stats.awayAvg);
-  if (model) sources.push({ label: "model", probs: model, weight: weights.model });
-
-  // 3) LLM (только для h2h — даёт вероятности 1X2).
-  if (ai && line.market === "h2h") {
-    sources.push({ label: "ai", probs: hdaToNamed(ai.probs, line.home, line.away), weight: weights.ai });
+  let ai = null;
+  if (!consensusOnly) {
+    const bundle = await gatherOnce(cache, line);
+    ai = bundle.ai;
+    // 2) Модель Пуассона.
+    const model = modelProbs(line, bundle.stats.homeAvg, bundle.stats.awayAvg);
+    if (model) sources.push({ label: "model", probs: model, weight: weights.model });
+    // 3) LLM (только для h2h — даёт вероятности 1X2).
+    if (ai && line.market === "h2h") {
+      sources.push({ label: "ai", probs: hdaToNamed(ai.probs, line.home, line.away), weight: weights.ai });
+    }
   }
 
   const prediction = buildPrediction({ sources, bestOutcomes: line.bestOutcomes });
-  return { ...line, ai: ai || null, prediction };
+  return { ...line, ai, prediction };
 }
 
 // Полный скан. opts:
@@ -116,12 +130,15 @@ export async function scan({
   enrichAi = true,
   notify = true,
   store = true,
+  maxHours = config.maxHours,
   weights = config.weights || DEFAULT_WEIGHTS,
-  fetchOddsFn = fetchOdds
+  fetchOddsFn = fetchOdds,
+  nowMs = Date.now()
 } = {}) {
   const raw = await fetchOddsFn(sport, { markets: markets.join(",") });
   const byId = new Map((raw || []).map(ev => [ev.id, ev]));
-  const lines = normalizeEventsMulti(raw, markets);
+  const lines = normalizeEventsMulti(raw, markets)
+    .filter(l => withinWindow(l.commence, nowMs, maxHours));
   const surebets = findSurebets(lines, { minMarginPct, totalStake });
 
   const cache = new Map();
@@ -135,5 +152,63 @@ export async function scan({
   if (notify) notified = await notifySurebets(enriched);
   if (store) logged = await logSurebets(enriched);
 
-  return { scanned: lines.length, found: enriched.length, notified, logged, surebets: enriched };
+  return { scanned: lines.length, found: enriched.length, notified, logged, windowHours: maxHours, surebets: enriched };
+}
+
+// Скан value-ставок: прогноз по ВСЕМ событиям (не только вилкам) и отбор тех,
+// где лучший коэффициент выгоднее честной вероятности рынка (перевес ≥ порога).
+// Работает даже когда чистых вилок нет. По умолчанию — только консенсус рынка
+// (мгновенно, без затрат на статистику/LLM); enrichAi=true добавляет Пуассон+LLM.
+// Порог value зависит от резкости конторы, где стоит ставка: у софт-контор
+// щедрость обманчива → требуем перевес выше; у резких — обычный порог.
+// opts: sport, markets, minEdgePct, minEdgeSoftPct, sharpOnly, enrichAi, weights, fetchOddsFn.
+export async function scanValue({
+  sport = "upcoming",
+  markets = config.markets,
+  minEdgePct = config.minEdgePct,
+  minEdgeSoftPct = config.minEdgeSoftPct,
+  sharpOnly = false,
+  enrichAi = false,
+  maxHours = config.maxHours,
+  weights = config.weights || DEFAULT_WEIGHTS,
+  logFile = null,        // путь к predictions.jsonl — писать прогнозы для грейдинга
+  fetchOddsFn = fetchOdds,
+  nowMs = Date.now()
+} = {}) {
+  const raw = await fetchOddsFn(sport, { markets: markets.join(",") });
+  const byId = new Map((raw || []).map(ev => [ev.id, ev]));
+  const lines = normalizeEventsMulti(raw, markets)
+    .filter(l => withinWindow(l.commence, nowMs, maxHours));
+
+  const cache = new Map();
+  const values = [];
+  const logRecords = [];
+  for (const line of lines) {
+    const p = await predictLine(line, byId.get(line.id), cache, weights, { consensusOnly: !enrichAi });
+    const top = p.prediction && p.prediction.top;
+    if (!top) continue;
+    const tier = bookTier(top.bookmaker);
+    const threshold = tier === "sharp" ? minEdgePct : minEdgeSoftPct;
+    const isValue = top.edgePct >= threshold && !(sharpOnly && tier !== "sharp");
+    if (isValue) values.push({ ...p, valueBet: { ...top, tier } });
+
+    // Логируем прогноз по КАЖДОЙ линии (не только value) — для честной оценки
+    // калибровки. valueBet проставляем, только если ставка прошла фильтр.
+    if (logFile && p.prediction && p.prediction.probs) {
+      logRecords.push({
+        event_id: line.id, sport: line.sport, market: line.market,
+        line: line.line, point: line.point ?? null,
+        home: line.home, away: line.away, commence: line.commence,
+        probs: p.prediction.probs,
+        valueBet: isValue ? { name: top.name, odds: top.odds, bookmaker: top.bookmaker, edgePct: top.edgePct, tier } : null,
+        logged_at: new Date(nowMs).toISOString()
+      });
+    }
+  }
+  values.sort((a, b) => b.valueBet.edgePct - a.valueBet.edgePct);
+
+  let logged = null;
+  if (logFile && logRecords.length) logged = upsertPredictions(logFile, logRecords);
+
+  return { scanned: lines.length, found: values.length, windowHours: maxHours, logged, values };
 }

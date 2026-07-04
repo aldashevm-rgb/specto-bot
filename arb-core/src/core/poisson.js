@@ -14,18 +14,22 @@ export function poissonPmf(k, lambda) {
   return Math.exp(-lambda) * Math.pow(lambda, k) / factorial(k);
 }
 
-// Ожидаемые голы из средних по последним матчам обеих команд.
-// λ_home = (голы хозяев в атаке + голы соперника в обороне) / 2, и наоборот.
-// Простая честная оценка, когда есть только средние по форме.
+// Ожидаемые голы с поправкой на силу СОПЕРНИКА относительно среднего по лиге:
+// λ = атака команды × (оборона соперника / средний уровень) [× преимущество поля].
+// Так сильная оборона соперника давит слабую атаку, а не просто усредняется —
+// это стандартная attack×defense модель, а не наивное среднее.
+// ВНИМАНИЕ: на форме из 5 матчей и особенно на межлиговых матчах оценка грубая;
+// поэтому модель идёт в ансамбль с малым весом и гейтом по числу игр (см. scanner).
 export function lambdasFromAverages({
-  homeScoredAvg, homeConcededAvg, awayScoredAvg, awayConcededAvg, homeAdvantage = 1.1
+  homeScoredAvg, homeConcededAvg, awayScoredAvg, awayConcededAvg,
+  homeAdvantage = 1.1, leagueAvg = 1.4
 } = {}) {
   const hs = Number(homeScoredAvg), hc = Number(homeConcededAvg);
   const as = Number(awayScoredAvg), ac = Number(awayConcededAvg);
-  if ([hs, hc, as, ac].some(v => !Number.isFinite(v))) return null;
-  // Небольшое преимущество своего поля закладываем в атаку хозяев.
-  const lh = Math.max(0.05, ((hs + ac) / 2) * homeAdvantage);
-  const la = Math.max(0.05, (as + hc) / 2);
+  if ([hs, hc, as, ac].some(v => !Number.isFinite(v)) || !(leagueAvg > 0)) return null;
+  const clamp = x => Math.max(0.05, Math.min(5, x));
+  const lh = clamp(hs * (ac / leagueAvg) * homeAdvantage);
+  const la = clamp(as * (hc / leagueAvg));
   return { lh, la };
 }
 
