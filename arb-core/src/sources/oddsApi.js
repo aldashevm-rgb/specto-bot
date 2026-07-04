@@ -30,3 +30,16 @@ export async function fetchOdds(sport = "upcoming", {
   const url = `${config.oddsApiBase}/sports/${encodeURIComponent(sport)}/odds/?${params}`;
   return getJson(url, { label: "odds/odds" });
 }
+
+// Результаты матчей за последние daysFrom суток (1–3). Те же event_id, что и в
+// /odds — для грейдинга прогноза. Возвращает события с полями completed и scores.
+export async function fetchScores(sport, { daysFrom = 3 } = {}) {
+  if (!config.oddsApiKey) throw new Error("ODDS_API_KEY не задан");
+  const params = new URLSearchParams({
+    apiKey: config.oddsApiKey,
+    daysFrom: String(Math.max(1, Math.min(3, daysFrom))),
+    dateFormat: "iso"
+  });
+  const url = `${config.oddsApiBase}/sports/${encodeURIComponent(sport)}/scores/?${params}`;
+  return getJson(url, { label: "odds/scores" });
+}

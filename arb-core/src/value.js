@@ -46,8 +46,11 @@ async function main() {
     .filter(Boolean).join(" · ");
   console.log(`Скан value: ${sport} · рынки [${config.markets.join(", ")}] · ${win} · ` +
     `порог резкие +${config.minEdgePct}% / софт +${config.minEdgeSoftPct}% · ${mode} ...`);
-  const { scanned, found, values } = await scanValue({ sport, enrichAi, sharpOnly, maxHours });
-  console.log(`В окне линий: ${scanned}. Value-ставок: ${found}.`);
+  const { scanned, found, values, logged } = await scanValue({
+    sport, enrichAi, sharpOnly, maxHours, logFile: config.logFile
+  });
+  console.log(`В окне линий: ${scanned}. Value-ставок: ${found}.` +
+    (logged ? ` Прогнозов в лог: +${logged.added} новых / ${logged.total} всего.` : ""));
   values.forEach(printValue);
   if (!found) {
     console.log("\nНичего выше порога. Снизь планку (в .env ARB_MIN_EDGE / ARB_MIN_EDGE_SOFT) " +

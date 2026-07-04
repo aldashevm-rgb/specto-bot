@@ -1,5 +1,6 @@
 // Конфигурация ядра из переменных окружения. Одна точка правды.
 
+import { fileURLToPath } from "node:url";
 import { loadEnv } from "./util/loadEnv.js";
 
 // Подхватываем arb-core/.env (если есть) до чтения переменных ниже.
@@ -52,6 +53,10 @@ export const config = {
   minEdgePct: Number(process.env.ARB_MIN_EDGE) || 2,       // мин. value-перевес у резких контор, %
   minEdgeSoftPct: Number(process.env.ARB_MIN_EDGE_SOFT) || 4, // выше порог у софт-контор, %
   maxHours: Number(process.env.ARB_MAX_HOURS ?? 72),       // окно до матча, ч (0 = без ограничения)
+
+  // Автогрейдинг: локальный лог прогнозов и окно результатов The Odds API.
+  logFile: process.env.ARB_LOG_FILE || fileURLToPath(new URL("../predictions.jsonl", import.meta.url)),
+  scoresDaysFrom: Number(process.env.ARB_SCORES_DAYS) || 3, // за сколько суток брать результаты (1–3)
   totalStake: Number(process.env.ARB_STAKE) || 1000,       // банк на событие
   region: process.env.ODDS_REGION || "eu",                 // регион БК
   markets: parseMarkets(process.env.ODDS_MARKET || "h2h,totals") // рынки: h2h,totals,spreads

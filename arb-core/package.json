@@ -10,6 +10,7 @@
     "start": "node src/index.js",
     "scan": "node src/index.js",
     "value": "node src/value.js",
+    "grade": "node src/grade.js",
     "demo": "node src/demo.js",
     "test": "node --test"
   }

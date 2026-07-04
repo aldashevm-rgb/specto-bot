@@ -20,6 +20,7 @@ import { readMatch } from "./motivation.js";
 import { marketConsensus } from "./devig.js";
 import { bookTier, bookWeight } from "./sharpness.js";
 import { withinWindow } from "../util/time.js";
+import { upsertPredictions } from "../store/localLog.js";
 import { lambdasFromAverages, outcomeProbs, totalsProbs } from "./poisson.js";
 import { buildPrediction, hdaToNamed, ouToNamed, DEFAULT_WEIGHTS } from "./predict.js";
 import { notifySurebets } from "../notify/telegram.js";
@@ -170,6 +171,7 @@ export async function scanValue({
   enrichAi = false,
   maxHours = config.maxHours,
   weights = config.weights || DEFAULT_WEIGHTS,
+  logFile = null,        // путь к predictions.jsonl — писать прогнозы для грейдинга
   fetchOddsFn = fetchOdds,
   nowMs = Date.now()
 } = {}) {
@@ -180,16 +182,33 @@ export async function scanValue({
 
   const cache = new Map();
   const values = [];
+  const logRecords = [];
   for (const line of lines) {
     const p = await predictLine(line, byId.get(line.id), cache, weights, { consensusOnly: !enrichAi });
     const top = p.prediction && p.prediction.top;
     if (!top) continue;
     const tier = bookTier(top.bookmaker);
-    if (sharpOnly && tier !== "sharp") continue;
     const threshold = tier === "sharp" ? minEdgePct : minEdgeSoftPct;
-    if (top.edgePct < threshold) continue;
-    values.push({ ...p, valueBet: { ...top, tier } });
+    const isValue = top.edgePct >= threshold && !(sharpOnly && tier !== "sharp");
+    if (isValue) values.push({ ...p, valueBet: { ...top, tier } });
+
+    // Логируем прогноз по КАЖДОЙ линии (не только value) — для честной оценки
+    // калибровки. valueBet проставляем, только если ставка прошла фильтр.
+    if (logFile && p.prediction && p.prediction.probs) {
+      logRecords.push({
+        event_id: line.id, sport: line.sport, market: line.market,
+        line: line.line, point: line.point ?? null,
+        home: line.home, away: line.away, commence: line.commence,
+        probs: p.prediction.probs,
+        valueBet: isValue ? { name: top.name, odds: top.odds, bookmaker: top.bookmaker, edgePct: top.edgePct, tier } : null,
+        logged_at: new Date(nowMs).toISOString()
+      });
+    }
   }
   values.sort((a, b) => b.valueBet.edgePct - a.valueBet.edgePct);
-  return { scanned: lines.length, found: values.length, windowHours: maxHours, values };
+
+  let logged = null;
+  if (logFile && logRecords.length) logged = upsertPredictions(logFile, logRecords);
+
+  return { scanned: lines.length, found: values.length, windowHours: maxHours, logged, values };
 }
