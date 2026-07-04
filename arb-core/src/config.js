@@ -43,7 +43,7 @@ export const config = {
   minMarginPct: Number(process.env.ARB_MIN_MARGIN) || 0.5, // мин. маржа вилки, %
   totalStake: Number(process.env.ARB_STAKE) || 1000,       // банк на событие
   region: process.env.ODDS_REGION || "eu",                 // регион БК
-  markets: parseMarkets(process.env.ODDS_MARKET || "h2h")  // рынки: h2h,totals,spreads
+  markets: parseMarkets(process.env.ODDS_MARKET || "h2h,totals") // рынки: h2h,totals,spreads
 };
 
 export function haveOddsApi() {
