@@ -66,18 +66,35 @@ journalctl -u arb-watch -f                # логи
 
 ---
 
-## Вариант 3. PaaS (без своего сервера)
+## Вариант 3. PaaS через браузер — Railway (без своего сервера и командной строки)
 
-Хостинги вроде **Railway**, **Render** (Background Worker) или **Fly.io** умеют
-запускать процесс из репозитория:
+1. Зайди на **railway.app** → **Login with GitHub**.
+2. **New Project → Deploy from GitHub repo** → выбери `aldashevm-rgb/specto-bot`
+   (при первом разе Railway попросит разрешить доступ к репозиторию).
+3. Открой сервис → **Settings**:
+   - **Root Directory** = `arb-core` (Railway сам увидит `Dockerfile` и соберёт вотчер).
+   - Порт настраивать не нужно — это фоновый процесс, а не сайт.
+4. Вкладка **Variables** → добавь:
+   ```
+   ODDS_API_KEY=...
+   TELEGRAM_BOT_TOKEN=...
+   TELEGRAM_CHAT_ID=...
+   ARB_WATCH_SPORT=upcoming
+   ARB_WATCH_MS=7200000        # 120 мин
+   ARB_MAX_HOURS=72
+   ARB_LOG_FILE=/data/predictions.jsonl
+   ```
+   (по желанию `API_FOOTBALL_KEY`, `ANTHROPIC_API_KEY`, `ARB_WATCH_SHARP=1`).
+5. **New → Volume**, точка монтирования **`/data`** — чтобы лог прогнозов и
+   статистика грейдинга переживали перезапуски.
+6. **Deploy**. Вкладка **Logs** — увидишь строки вотчера; при появлении ставки
+   придёт сообщение в Telegram.
 
-1. Подключи GitHub-репозиторий, укажи корень `arb-core` и старт-команду
-   `node src/watch.js` (или собери по `Dockerfile`).
-2. В настройках проекта задай переменные окружения: `ODDS_API_KEY`,
-   `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `ARB_WATCH_SPORT`, `ARB_WATCH_MS`.
-3. Для сохранения лога прогнозов между рестартами примонтируй volume к `/data`
-   и задай `ARB_LOG_FILE=/data/predictions.jsonl` (у Fly.io — Volumes; у Render —
-   Disk). Без volume вотчер работает, но история для грейдинга не копится.
+Стоимость: вотчер крошечный (просыпается раз в 120 мин), потребление
+минимальное — влезает в пробный кредит / дешёвый Hobby-план Railway.
+
+> **Render / Fly.io** — аналогично: тип сервиса «Background Worker», Root
+> Directory `arb-core`, те же переменные, диск/volume на `/data`.
 
 ---
 
