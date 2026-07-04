@@ -1,0 +1,28 @@
+# systemd-юнит для вотчера без Docker (на VPS с установленным Node 18+).
+# Установка:
+#   sudo cp deploy/arb-watch.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now arb-watch
+#   journalctl -u arb-watch -f      # смотреть логи
+#
+# Отредактируй User, WorkingDirectory и путь к .env под свой сервер.
+
+[Unit]
+Description=arb-core watcher (SPECTO ARB)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=arb
+WorkingDirectory=/opt/specto-bot/arb-core
+# Ключи и параметры — из файла окружения (формат KEY=VALUE, без кавычек).
+EnvironmentFile=/opt/specto-bot/arb-core/.env
+Environment=ARB_WATCH_SPORT=upcoming
+Environment=ARB_WATCH_MS=7200000
+ExecStart=/usr/bin/node src/watch.js
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

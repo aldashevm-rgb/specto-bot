@@ -1,0 +1,17 @@
+# Запуск вотчера на сервере: docker compose up -d
+# Ключи берутся из .env (создай рядом по образцу .env.example).
+services:
+  watcher:
+    build: .
+    restart: unless-stopped        # авто-перезапуск при сбое/ребуте сервера
+    env_file: .env                 # ODDS_API_KEY, TELEGRAM_* и т.д.
+    environment:
+      ARB_WATCH_SPORT: upcoming    # что сканировать
+      ARB_WATCH_MS: "7200000"      # интервал 120 мин (≈360 запросов/мес — под free-тариф)
+      ARB_MAX_HOURS: "72"          # окно до матча
+      ARB_LOG_FILE: /data/predictions.jsonl
+      # ARB_WATCH_SHARP: "1"       # раскомментируй — только резкие конторы
+    volumes:
+      - arb-data:/data             # лог прогнозов переживает рестарты
+volumes:
+  arb-data:
