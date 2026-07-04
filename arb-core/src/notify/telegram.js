@@ -3,6 +3,7 @@
 
 import { config, haveTelegram } from "../config.js";
 import { withRetry } from "../util/http.js";
+import { kellyStake } from "../core/kelly.js";
 
 // Экранирование для parse_mode=HTML (Telegram).
 function esc(s) {
@@ -78,6 +79,34 @@ export async function notifySurebets(surebets = [], minMarginPct = config.notify
   for (const sb of surebets) {
     if (sb.arb.marginPct < minMarginPct) continue;
     if (await sendTelegram(formatSurebet(sb))) sent += 1;
+  }
+  return sent;
+}
+
+// value-ставка → HTML-текст алерта (с размером ставки по Кельли).
+export function formatValueAlert(v, kelly = null) {
+  const b = v.valueBet;
+  const tier = b.tier === "sharp" ? "🟢 резкая" : "🟡 софт";
+  const kickoff = v.commence ? new Date(v.commence).toISOString().replace("T", " ").slice(0, 16) : "?";
+  const lineTag = v.line ? ` · ${esc(v.line)}` : "";
+  let stake = "";
+  const p = v.prediction && v.prediction.probs ? v.prediction.probs[b.name] : null;
+  if (p != null && kelly) {
+    const k = kellyStake(p, b.odds, kelly);
+    stake = `\nСтавка: <b>${k.stake}</b> — ${(k.fractionOfBank * 100).toFixed(1)}% банка (${kelly.fraction}·Kelly)`;
+  }
+  return `💡 <b>Value +${b.edgePct}%</b>  ${tier}\n` +
+    `${esc(v.home)} — ${esc(v.away)}\n` +
+    `<i>${esc(v.sport)}${lineTag} · ${kickoff}</i>\n` +
+    `➤ <b>${esc(b.name)}</b> @ ${b.odds} (${esc(b.bookmaker)})${stake}`;
+}
+
+// Уведомить о value-ставках. kelly = { bankroll, fraction, maxFraction } или null.
+export async function notifyValues(values = [], kelly = null) {
+  if (!haveTelegram()) return 0;
+  let sent = 0;
+  for (const v of values) {
+    if (await sendTelegram(formatValueAlert(v, kelly))) sent += 1;
   }
   return sent;
 }
