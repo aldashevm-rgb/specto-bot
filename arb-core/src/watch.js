@@ -79,9 +79,11 @@ async function main() {
   const everyMin = flags.find(f => f.startsWith("--every="));
   const intervalMs = everyMin ? Number(everyMin.split("=")[1]) * 60000 : (Number(process.env.ARB_WATCH_MS) || 30 * 60000);
 
+  // На сервере флагов нет — берём из переменных окружения (см. DEPLOY.md).
+  const enabled = v => ["1", "true", "yes"].includes(String(v || "").toLowerCase());
   const opts = {
-    sport: args[0] || "upcoming",
-    sharpOnly: flags.includes("--sharp"),
+    sport: args[0] || process.env.ARB_WATCH_SPORT || "upcoming",
+    sharpOnly: flags.includes("--sharp") || enabled(process.env.ARB_WATCH_SHARP),
     maxHours: flagVal(flags, "hours", config.maxHours),
     bankroll: flagVal(flags, "bank", config.bankroll),
     minEdgePct: flagVal(flags, "min-edge", config.minEdgePct)

@@ -1,0 +1,8 @@
+.env
+predictions.jsonl
+node_modules
+test
+*.md
+Dockerfile
+.dockerignore
+docker-compose.yml
