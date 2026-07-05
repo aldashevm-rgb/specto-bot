@@ -15,7 +15,8 @@ import { notifySurebets, notifyValues } from "./notify/telegram.js";
 import { surebetKey, valueKey, pickNew } from "./notify/dedup.js";
 import { runGrade } from "./store/gradeRun.js";
 import { learningStatus } from "./core/scanner.js";
-import { maybeOffer, pollConfirmations } from "./betting/autobet.js";
+import { maybeOffer } from "./betting/autobet.js";
+import { pollTelegram } from "./notify/poll.js";
 import { haveOddsApi, haveTelegram, config } from "./config.js";
 
 function flagVal(flags, name, fallback) {
@@ -121,8 +122,13 @@ async function main() {
   if (config.betting.enabled) {
     const m = config.betting.dryRun ? "DRY-RUN (реальные деньги НЕ трогаются)" : "РЕАЛЬНЫЕ ставки на Betfair";
     console.log(`Автоставка: ВКЛ — ${m}. Лимит ${config.betting.maxStake}/ставка, день ${config.betting.dailyCap}.`);
-    // Подтверждения кнопок опрашиваем часто (независимо от интервала сканов).
-    setInterval(() => pollConfirmations().catch(err => console.error("Ошибка подтверждений:", err.message)), 8000);
+  }
+
+  // Кнопки в Telegram работают всегда, когда бот подключён (не только при автоставке):
+  // «✅ Поставил» / «⏭ Скрыть» и подтверждения ставок. Опрашиваем часто.
+  if (haveTelegram()) {
+    console.log("Кнопки Telegram: ВКЛ — жми «✅ Поставил» под алертом, бот отметит.");
+    setInterval(() => pollTelegram().catch(err => console.error("Ошибка кнопок:", err.message)), 4000);
   }
 
   const seen = new Set();

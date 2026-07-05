@@ -80,7 +80,7 @@ export async function notifySurebets(surebets = [], minMarginPct = config.notify
   let sent = 0;
   for (const sb of surebets) {
     if (sb.arb.marginPct < minMarginPct) continue;
-    if (await sendTelegram(formatSurebet(sb), searchKeyboard(sb.home, sb.away))) sent += 1;
+    if (await sendTelegram(formatSurebet(sb), surebetKeyboard(sb))) sent += 1;
   }
   return sent;
 }
@@ -158,18 +158,66 @@ export function confirmKeyboard(cbData, label = "✅ Поставить") {
   return { inline_keyboard: [[{ text: label, callback_data: String(cbData) }]] };
 }
 
-// Клавиатура-ссылки: открыть контору + найти матч (ставишь сам в приложении).
+// Ряд интерактивных кнопок «отметить действие» (обрабатываются в poll.js).
+// callback_data короткие: "ok" — поставил, "no" — скрыть. Нажатие правит это же
+// сообщение (по message_id из апдейта), поэтому уникальность data не нужна.
+export function actionRow() {
+  return [
+    { text: "✅ Поставил", callback_data: "ok" },
+    { text: "⏭ Скрыть", callback_data: "no" }
+  ];
+}
+
+// Клавиатура-ссылки: открыть контору + найти матч (ставишь сам в приложении) +
+// ряд «отметить действие».
 export function linkKeyboard(bookmaker, home, away) {
   const row = [];
   const url = bookmakerUrl(bookmaker);
   if (url) row.push({ text: `🔗 Открыть ${bookmaker}`, url });
   row.push({ text: "🔎 Найти матч", url: searchUrl(bookmaker, home, away) });
-  return { inline_keyboard: [row] };
+  return { inline_keyboard: [row, actionRow()] };
+}
+
+// Клавиатура для вилки: открыть каждую контору из ног (до 3) + «отметить».
+export function surebetKeyboard(sb) {
+  const books = [...new Set((sb.arb?.legs || []).map(l => l.bookmaker).filter(Boolean))];
+  const linkRow = [];
+  for (const bk of books) {
+    const url = bookmakerUrl(bk);
+    if (url && linkRow.length < 3) linkRow.push({ text: `🔗 ${bk}`, url });
+  }
+  if (!linkRow.length) linkRow.push({ text: "🔎 Найти матч", url: searchUrl("", sb.home, sb.away) });
+  return { inline_keyboard: [linkRow, actionRow()] };
 }
 
 // Клавиатура только с поиском (для вилок — там несколько контор).
 export function searchKeyboard(home, away) {
   return { inline_keyboard: [[{ text: "🔎 Найти матч", url: searchUrl("", home, away) }]] };
+}
+
+// Свернуть клавиатуру после нажатия: оставить только ссылки (url-кнопки) и
+// добавить строку-пометку о выбранном действии. Экшн-кнопки исчезают — видно,
+// что нажатие сработало.
+export function collapseToLinks(markup, noteText) {
+  const rows = (markup && markup.inline_keyboard) || [];
+  const linkRows = rows
+    .map(r => (r || []).filter(b => b && b.url))
+    .filter(r => r.length);
+  linkRows.push([{ text: noteText, callback_data: "noop" }]);
+  return { inline_keyboard: linkRows };
+}
+
+// Изменить клавиатуру уже отправленного сообщения (editMessageReplyMarkup).
+export async function editReplyMarkup(chatId, messageId, replyMarkup) {
+  if (!haveTelegram()) return false;
+  const url = `https://api.telegram.org/bot${config.telegramToken}/editMessageReplyMarkup`;
+  try {
+    const res = await fetch(url, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, message_id: messageId, reply_markup: replyMarkup })
+    });
+    return res.ok;
+  } catch { return false; }
 }
 
 // Опросить обновления Telegram (для нажатий кнопок). offset — с какого update_id.

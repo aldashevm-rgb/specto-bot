@@ -4,7 +4,7 @@
 
 import { config, haveTelegram, haveBetfair } from "../config.js";
 import {
-  sendTelegram, confirmKeyboard, getUpdates, answerCallback, formatValueAlert
+  sendTelegram, confirmKeyboard, answerCallback, formatValueAlert
 } from "../notify/telegram.js";
 import { kellyStake } from "../core/kelly.js";
 import { validateBet } from "./caps.js";
@@ -12,7 +12,6 @@ import { addPending, takePending, sweepExpired, shortId } from "./pending.js";
 import { placeBet } from "./betfair.js";
 
 const pending = new Map();
-let offset = 0;
 let counter = 0;
 let spent = { day: "", total: 0 };
 
@@ -55,7 +54,7 @@ export async function maybeOffer(v, nowMs = Date.now()) {
   const mode = config.betting.dryRun ? "\n🧪 режим DRY-RUN (реальные деньги не трогаются)" : "";
   await sendTelegram(
     formatValueAlert(v, kelly) + `\n\nПоставить эту ставку на Betfair?${mode}`,
-    confirmKeyboard(id, `✅ Поставить ${stake}`)
+    confirmKeyboard(`bet:${id}`, `✅ Поставить ${stake}`)
   );
   return true;
 }
@@ -99,15 +98,16 @@ async function handleConfirm(id, callbackId, nowMs) {
   }
 }
 
-// Опросить нажатия кнопок и обработать подтверждения. Вотчер зовёт это часто.
-export async function pollConfirmations(nowMs = Date.now()) {
-  if (!config.betting.enabled || !haveTelegram()) return;
+// Почистить просроченные подтверждения. Зовёт единый поллер (poll.js).
+export function sweepBetting(nowMs = Date.now()) {
+  if (!config.betting.enabled) return;
   sweepExpired(pending, nowMs);
-  let res;
-  try { res = await getUpdates(offset); } catch { return; }
-  offset = res.nextOffset;
-  for (const u of res.updates) {
-    const cb = u.callback_query;
-    if (cb && cb.data) await handleConfirm(cb.data, cb.id, nowMs);
-  }
+}
+
+// Обработать нажатие кнопки подтверждения ставки (callback_data вида "bet:<id>",
+// префикс уже снят вызывающим). Возвращает true, если это была наша кнопка.
+export async function handleBettingCallback(id, callbackId, nowMs = Date.now()) {
+  if (!config.betting.enabled || !haveTelegram()) return false;
+  await handleConfirm(id, callbackId, nowMs);
+  return true;
 }
