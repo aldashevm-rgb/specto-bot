@@ -16,13 +16,14 @@ const sb = {
         probs: { home: 0.5, draw: 0.25, away: 0.25 }, reasoning: "x" }
 };
 
-test("formatSurebet: содержит команды, маржу и раскладку", () => {
+test("formatSurebet: понятный текст — спорт, команды, маржа, раскладка", () => {
   const msg = formatSurebet(sb);
-  assert.match(msg, /Arsenal/);
-  assert.match(msg, /Chelsea/);
-  assert.match(msg, /4\.78%/);
+  assert.match(msg, /⚽ Футбол/);            // человеческое название спорта
+  assert.match(msg, /Arsenal — Chelsea/);
+  assert.match(msg, /\+4\.78%/);
+  assert.match(msg, /Победа Arsenal \(П1\)/); // понятный исход
   assert.match(msg, /446\.89/);
-  assert.match(msg, /нужнее победа: home/);
+  assert.doesNotMatch(msg, /soccer_epl/);     // сырого ключа спорта нет
 });
 
 test("formatSurebet: экранирует HTML-спецсимволы в названиях", () => {

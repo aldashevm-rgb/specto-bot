@@ -25,43 +25,47 @@ test("pickNew: возвращает только новые, помечает и
   assert.equal(third.length, 1);
 });
 
-test("formatValueAlert: содержит матч, перевес, ставку по Кельли; экранирует", () => {
+test("formatValueAlert: понятный текст (спорт, исход, кэф, сумма); экранирует", () => {
   const v = {
-    id: "e1", sport: "soccer_epl", market: "h2h", line: null,
+    id: "e1", sport: "soccer_epl", market: "h2h", line: null, point: null,
     home: "Hull<b>", away: "Man Utd", commence: "2026-08-22T16:30:00Z",
     valueBet: { name: "Hull<b>", odds: 7.8, bookmaker: "Betfair", edgePct: 8.9, tier: "sharp" },
     prediction: { probs: { "Hull<b>": 0.14, Draw: 0.21, "Man Utd": 0.65 } }
   };
   const msg = formatValueAlert(v, { bankroll: 1000, fraction: 0.25, maxFraction: 0.05 });
-  assert.match(msg, /Value \+8\.9%/);
-  assert.match(msg, /резкая/);
-  assert.match(msg, /Ставка:/);
-  assert.match(msg, /Hull&lt;b&gt;/);       // экранировано
-  assert.doesNotMatch(msg, /Hull<b>/);
+  assert.match(msg, /\+8\.9%/);
+  assert.match(msg, /⚽ Футбол/);           // человеческое название спорта
+  assert.match(msg, /Ставить на:/);
+  assert.match(msg, /Победа Hull&lt;b&gt; \(П1\)/); // понятный исход + экранирование
+  assert.match(msg, /Коэффициент: <b>7\.8<\/b>/);
+  assert.match(msg, /надёжная/);
+  assert.match(msg, /Сумма ставки/);
+  assert.doesNotMatch(msg, /soccer_epl/);   // сырого ключа спорта нет
 });
 
-test("formatGradeResult: сыгравшая ставка → плюс, счёт, деньги", () => {
+test("formatGradeResult: сыгравшая ставка → плюс, счёт, понятный исход", () => {
   const rec = {
-    home: "Goiás", away: "Ceará", market: "totals", line: "Тотал 2.5",
+    home: "Goiás", away: "Ceará", sport: "soccer_brazil_serie_b", market: "totals",
+    line: "Тотал 2.5", point: 2.5,
     actual_home: 2, actual_away: 1, winner: "Over", bet_won: true,
     valueBet: { name: "Over", odds: 2.74, bookmaker: "Matchbook" },
     probs: { Over: 0.4, Under: 0.6 }
   };
   const msg = formatGradeResult(rec, { bankroll: 5000, fraction: 0.25, maxFraction: 0.05 });
-  assert.match(msg, /Сыграла/);
-  assert.match(msg, /2:1/);
-  assert.match(msg, /Over @ 2\.74/);
-  assert.match(msg, /Ставка/);
-  assert.match(msg, /\+/);                 // прибыль со знаком плюс
+  assert.match(msg, /СЫГРАЛА/);
+  assert.match(msg, /счёт 2:1/);
+  assert.match(msg, /Тотал больше 2\.5/);   // понятный исход
+  assert.match(msg, /кэф 2\.74/);
+  assert.match(msg, /\+/);
 });
 
-test("formatGradeResult: не зашла → минус", () => {
+test("formatGradeResult: не зашла → минус, понятный исход", () => {
   const rec = {
-    home: "A", away: "B", market: "h2h", actual_home: 0, actual_away: 1,
+    home: "A", away: "B", sport: "tennis_atp", market: "h2h", actual_home: 0, actual_away: 1,
     winner: "B", bet_won: false,
     valueBet: { name: "A", odds: 3.0, bookmaker: "1xBet" }, probs: { A: 0.33, Draw: 0.3, B: 0.37 }
   };
   const msg = formatGradeResult(rec, { bankroll: 1000, fraction: 0.25, maxFraction: 0.05 });
-  assert.match(msg, /Не зашла/);
-  assert.match(msg, /факт: B/);
+  assert.match(msg, /не зашла/i);
+  assert.match(msg, /Победа A \(П1\)/);
 });
