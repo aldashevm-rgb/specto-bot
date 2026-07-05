@@ -18,8 +18,13 @@ const SITES = [
   ["smarkets", "https://smarkets.com"],
   ["nordicbet", "https://www.nordicbet.com"],
   ["bet365", "https://www.bet365.com"],
-  ["parimatch", "https://www.parimatch.com"],
-  ["melbet", "https://melbet.com"]
+  ["parimatch", "https://www.parimatch.kz"],
+  ["melbet", "https://melbet.com"],
+  ["betcity", "https://betcity.kz"],
+  ["olimp", "https://olimpbet.kz"],
+  ["mostbet", "https://mostbet.com"],
+  ["1win", "https://1win.com"],
+  ["pinup", "https://pin-up.kz"]
 ];
 
 // Сайт конторы по названию (или null, если не знаем).
