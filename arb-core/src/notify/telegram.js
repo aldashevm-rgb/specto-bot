@@ -36,22 +36,25 @@ export function formatSurebet(sb) {
   ].filter(x => x !== null).join("\n");
 }
 
-// Отправить одно сообщение. Возвращает true/false. Без ключей — тихо false.
-export async function sendTelegram(text) {
+// Отправить одно сообщение. replyMarkup — опц. inline-клавиатура (кнопки).
+// Возвращает true/false. Без ключей — тихо false.
+export async function sendTelegram(text, replyMarkup = null) {
   if (!haveTelegram()) return false;
   const url = `https://api.telegram.org/bot${config.telegramToken}/sendMessage`;
   try {
     await withRetry(
       async () => {
+        const payload = {
+          chat_id: config.telegramChatId,
+          text,
+          parse_mode: "HTML",
+          disable_web_page_preview: true
+        };
+        if (replyMarkup) payload.reply_markup = replyMarkup;
         const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: config.telegramChatId,
-            text,
-            parse_mode: "HTML",
-            disable_web_page_preview: true
-          })
+          body: JSON.stringify(payload)
         });
         if (!res.ok) {
           const body = await res.text();
@@ -139,6 +142,38 @@ export function formatGradeResult(rec, kelly = null) {
     lines.push(`💰 Ставил ${k.stake} → <b>${r2 >= 0 ? "+" : ""}${r2}</b>`);
   }
   return lines.join("\n");
+}
+
+// Inline-клавиатура с кнопкой подтверждения ставки. cbData — callback_data.
+export function confirmKeyboard(cbData, label = "✅ Поставить") {
+  return { inline_keyboard: [[{ text: label, callback_data: String(cbData) }]] };
+}
+
+// Опросить обновления Telegram (для нажатий кнопок). offset — с какого update_id.
+// Возвращает { updates, nextOffset }.
+export async function getUpdates(offset = 0, timeoutSec = 0) {
+  if (!haveTelegram()) return { updates: [], nextOffset: offset };
+  const url = `https://api.telegram.org/bot${config.telegramToken}/getUpdates` +
+    `?timeout=${timeoutSec}&allowed_updates=%5B%22callback_query%22%5D` +
+    (offset ? `&offset=${offset}` : "");
+  const res = await fetch(url);
+  const data = await res.json().catch(() => ({}));
+  const updates = data.ok && Array.isArray(data.result) ? data.result : [];
+  const nextOffset = updates.length ? updates[updates.length - 1].update_id + 1 : offset;
+  return { updates, nextOffset };
+}
+
+// Ответить на нажатие кнопки (убрать «часики») и опц. показать всплывашку.
+export async function answerCallback(callbackId, text = "") {
+  if (!haveTelegram()) return false;
+  const url = `https://api.telegram.org/bot${config.telegramToken}/answerCallbackQuery`;
+  try {
+    await fetch(url, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ callback_query_id: callbackId, text: text.slice(0, 200) })
+    });
+    return true;
+  } catch { return false; }
 }
 
 // Разослать результаты по заграженным value-ставкам. Возвращает число отправленных.

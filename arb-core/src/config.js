@@ -7,6 +7,10 @@ import { loadEnv } from "./util/loadEnv.js";
 // Реальные переменные окружения имеют приоритет над файлом.
 loadEnv(new URL("../.env", import.meta.url));
 
+function enabledEnv(name) {
+  return ["1", "true", "yes"].includes(String(process.env[name] || "").toLowerCase());
+}
+
 // "h2h,totals,spreads" → ["h2h","totals","spreads"]
 function parseMarkets(raw) {
   return String(raw || "h2h")
@@ -62,6 +66,21 @@ export const config = {
   bankroll: Number(process.env.ARB_BANKROLL) || 1000,
   kellyFraction: Number(process.env.ARB_KELLY_FRACTION ?? 0.25),   // четверть-Кельли
   kellyMaxFraction: Number(process.env.ARB_KELLY_MAX ?? 0.05),     // потолок 5% банка/ставка
+
+  // Автоставка через биржу Betfair (с подтверждением кнопкой в Telegram).
+  // ПО УМОЛЧАНИЮ ВЫКЛ и DRY-RUN — реальные деньги не трогаются, пока сам не включишь.
+  betting: {
+    enabled: enabledEnv("BETTING_ENABLED"),                        // мастер-выключатель
+    dryRun: process.env.BETTING_DRY_RUN !== "0",                   // по умолчанию dry-run
+    maxStake: Number(process.env.BETTING_MAX_STAKE) || 20,         // потолок на ставку
+    dailyCap: Number(process.env.BETTING_DAILY_CAP) || 100,        // дневной лимит суммарно
+    confirmTtlMs: (Number(process.env.BETTING_CONFIRM_TTL_MIN) || 15) * 60000,
+    betfair: {
+      appKey: process.env.BETFAIR_APP_KEY || "",
+      username: process.env.BETFAIR_USERNAME || "",
+      password: process.env.BETFAIR_PASSWORD || ""
+    }
+  },
   totalStake: Number(process.env.ARB_STAKE) || 1000,       // банк на событие
   region: process.env.ODDS_REGION || "eu",                 // регион БК
   markets: parseMarkets(process.env.ODDS_MARKET || "h2h,totals") // рынки: h2h,totals,spreads
@@ -81,4 +100,8 @@ export function haveTelegram() {
 }
 export function haveSupabase() {
   return Boolean(config.supabaseUrl && config.supabaseKey);
+}
+export function haveBetfair() {
+  const b = config.betting.betfair;
+  return Boolean(b.appKey && b.username && b.password);
 }

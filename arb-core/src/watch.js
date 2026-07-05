@@ -14,6 +14,7 @@ import { fetchOdds } from "./sources/oddsApi.js";
 import { notifySurebets, notifyValues } from "./notify/telegram.js";
 import { surebetKey, valueKey, pickNew } from "./notify/dedup.js";
 import { runGrade } from "./store/gradeRun.js";
+import { maybeOffer, pollConfirmations } from "./betting/autobet.js";
 import { haveOddsApi, haveTelegram, config } from "./config.js";
 
 function flagVal(flags, name, fallback) {
@@ -53,8 +54,16 @@ async function tick(opts, seen) {
   if (haveTelegram()) {
     const kelly = { bankroll: opts.bankroll, fraction: config.kellyFraction, maxFraction: config.kellyMaxFraction };
     const s = await notifySurebets(newSure);
-    const vv = await notifyValues(newVal, kelly);
-    if (s + vv) console.log(`  → отправлено в Telegram: ${s + vv}`);
+    // value: Betfair-пики с включённой автоставкой шлём с кнопкой подтверждения,
+    // остальные — обычным алертом.
+    const manual = [];
+    for (const v of newVal) {
+      if (!(await maybeOffer(v))) manual.push(v);
+    }
+    const vv = await notifyValues(manual, kelly);
+    if (s + vv || manual.length !== newVal.length) {
+      console.log(`  → отправлено в Telegram: ${s + newVal.length}`);
+    }
   }
 
   // Проверяем сыгравшие ставки и шлём результат «сыграла/не зашла».
@@ -95,6 +104,13 @@ async function main() {
   console.log(`Telegram: ${haveTelegram() ? "ВКЛ" : "ВЫКЛ (шлём только в консоль; задай TELEGRAM_BOT_TOKEN/CHAT_ID)"}.`);
   console.log(`≈${perDay} запросов/сутки (~${perDay * 30}/мес). Free-тариф Odds API ~500/мес — ` +
     `для непрерывного вотча подними интервал или тариф. Ctrl+C — стоп.\n`);
+
+  if (config.betting.enabled) {
+    const m = config.betting.dryRun ? "DRY-RUN (реальные деньги НЕ трогаются)" : "РЕАЛЬНЫЕ ставки на Betfair";
+    console.log(`Автоставка: ВКЛ — ${m}. Лимит ${config.betting.maxStake}/ставка, день ${config.betting.dailyCap}.`);
+    // Подтверждения кнопок опрашиваем часто (независимо от интервала сканов).
+    setInterval(() => pollConfirmations().catch(err => console.error("Ошибка подтверждений:", err.message)), 8000);
+  }
 
   const seen = new Set();
   const run = () => tick(opts, seen).catch(err => console.error("Ошибка цикла:", err.message));
