@@ -38,7 +38,8 @@ async function tick(opts, seen) {
   });
 
   const newSure = pickNew(sure.surebets, seen, surebetKey);
-  const newVal = pickNew(val.values, seen, valueKey);
+  // Режим «только вилки»: value-ставки (с риском) не шлём вовсе.
+  const newVal = config.arbOnly ? [] : pickNew(val.values, seen, valueKey);
 
   const ts = new Date().toLocaleTimeString("ru-RU");
   console.log(`[${ts}] линий ${val.scanned} · вилки ${sure.found} (нов ${newSure.length}) · ` +
@@ -103,6 +104,7 @@ async function main() {
   console.log(`Вотчер: ${opts.sport} · окно ${opts.maxHours > 0 ? opts.maxHours + "ч" : "выкл"} · ` +
     `интервал ${Math.round(intervalMs / 60000)}мин${opts.sharpOnly ? " · только резкие" : ""}`);
   console.log(`Telegram: ${haveTelegram() ? "ВКЛ" : "ВЫКЛ (шлём только в консоль; задай TELEGRAM_BOT_TOKEN/CHAT_ID)"}.`);
+  if (config.arbOnly) console.log("Режим: ТОЛЬКО ВИЛКИ (гарантированные) — value-ставки с риском отключены.");
   console.log(`≈${perDay} запросов/сутки (~${perDay * 30}/мес). Free-тариф Odds API ~500/мес — ` +
     `для непрерывного вотча подними интервал или тариф. Ctrl+C — стоп.`);
   if (config.learn) {

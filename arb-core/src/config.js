@@ -93,7 +93,9 @@ export const config = {
   region: process.env.ODDS_REGION || "eu",                 // регион БК
   markets: parseMarkets(process.env.ODDS_MARKET || "h2h,totals"), // рынки: h2h,totals,spreads
   // Только эти конторы учитывать для рекомендации/лучшего кэфа (пусто = все).
-  myBooks: parseBooks(process.env.ARB_MY_BOOKS || "")
+  myBooks: parseBooks(process.env.ARB_MY_BOOKS || ""),
+  // Режим «только вилки»: вотчер шлёт лишь гарантированные вилки, без value-риска.
+  arbOnly: ["1", "true", "yes"].includes(String(process.env.ARB_ONLY || "").toLowerCase())
 };
 
 export function haveOddsApi() {
