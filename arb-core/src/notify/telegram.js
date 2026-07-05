@@ -98,9 +98,15 @@ export function formatValueAlert(v, kelly = null) {
     `🕒 ${timeUntil(v.commence, _now())}`,
     ``,
     `✅ Ставить на: <b>${esc(pick)}</b>`,
-    `💵 Коэффициент: <b>${b.odds}</b>`,
-    `🏦 Контора: ${esc(b.bookmaker)} (${rel})`
+    `💵 Лучший коэф: <b>${b.odds}</b> — ${esc(b.bookmaker)} (${rel})`
   ];
+  // Сравнение кэфов по конторам: где больше, отмечено ⭐.
+  if (Array.isArray(b.books) && b.books.length > 1) {
+    const cmp = b.books.slice(0, 4)
+      .map((x, i) => `${esc(x.bookmaker)} ${x.odds}${i === 0 ? " ⭐" : ""}`)
+      .join(" · ");
+    lines.push(`📊 Кэфы: ${cmp}`);
+  }
   const p = v.prediction && v.prediction.probs ? v.prediction.probs[b.name] : null;
   if (p != null && kelly) {
     const k = kellyStake(p, b.odds, kelly);

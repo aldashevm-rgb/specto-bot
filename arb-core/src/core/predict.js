@@ -20,6 +20,7 @@ export function computeEdges(probsByName = {}, bestOutcomes = []) {
       name: o.name,
       odds: o.odds,
       bookmaker: o.bookmaker,
+      books: o.books, // все конторы по исходу (для сравнения кэфов)
       modelProb: Math.round(p * 1000) / 10, // %
       edgePct: Math.round(edge * 1000) / 10
     });
