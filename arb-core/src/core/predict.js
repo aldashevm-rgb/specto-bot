@@ -36,12 +36,17 @@ export function buildPrediction({ sources = [], bestOutcomes = [] } = {}) {
   const probs = blendProbs(sources);
   if (!probs) return null;
   const edges = computeEdges(probs, bestOutcomes);
+  const used = sources.filter(s => s && s.probs && Number(s.weight) > 0);
+  // Вероятности каждого источника отдельно — чтобы потом оценивать их точность.
+  const sourceProbs = {};
+  for (const s of used) sourceProbs[s.label] = s.probs;
   return {
     probs,
     edges,
     top: edges[0] || null,
     agreement: agreement(sources, probs),
-    sources: sources.filter(s => s && s.probs && Number(s.weight) > 0).map(s => s.label)
+    sources: used.map(s => s.label),
+    sourceProbs
   };
 }
 

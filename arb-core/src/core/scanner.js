@@ -21,12 +21,24 @@ import { marketConsensus } from "./devig.js";
 import { bookTier, bookWeight } from "./sharpness.js";
 import { withinWindow } from "../util/time.js";
 import { restrictBestOutcomes } from "./mybooks.js";
-import { upsertPredictions } from "../store/localLog.js";
+import { learnWeights } from "./learn.js";
+import { upsertPredictions, readLog } from "../store/localLog.js";
 import { lambdasFromAverages, outcomeProbs, totalsProbs } from "./poisson.js";
 import { buildPrediction, hdaToNamed, ouToNamed, DEFAULT_WEIGHTS } from "./predict.js";
 import { notifySurebets } from "../notify/telegram.js";
 import { logSurebets } from "../store/supabase.js";
 import { config, haveApiFootball, haveClaude } from "../config.js";
+
+// Выученные веса источников (по точности на сыгравших ставках) или база.
+export function learningStatus() {
+  const graded = readLog(config.logFile).filter(r => r.graded_at && r.source_probs && r.winner);
+  return learnWeights(graded, { minSamples: config.learnMinSamples });
+}
+function effectiveWeights(base) {
+  if (!config.learn) return base;
+  const learned = learningStatus();
+  return learned ? { ...base, ...learned.weights } : base;
+}
 
 // Статистика матча из API-Football: текст-контекст для LLM + средние голов
 // обеих команд для модели Пуассона. Без ключа/данных — пустые поля.
@@ -144,10 +156,11 @@ export async function scan({
     .map(l => ({ ...l, bestOutcomes: restrictBestOutcomes(l.bestOutcomes, config.myBooks) }));
   const surebets = findSurebets(lines, { minMarginPct, totalStake });
 
+  const w = effectiveWeights(weights); // подстроенные обучением веса, если есть
   const cache = new Map();
   const enriched = [];
   for (const sb of surebets) {
-    enriched.push(enrichAi ? await predictLine(sb, byId.get(sb.id), cache, weights) : sb);
+    enriched.push(enrichAi ? await predictLine(sb, byId.get(sb.id), cache, w) : sb);
   }
 
   let notified = 0;
@@ -186,11 +199,12 @@ export async function scanValue({
     // Рекомендация — только среди моих контор (если список задан).
     .map(l => ({ ...l, bestOutcomes: restrictBestOutcomes(l.bestOutcomes, config.myBooks) }));
 
+  const w = effectiveWeights(weights); // подстроенные обучением веса, если есть
   const cache = new Map();
   const values = [];
   const logRecords = [];
   for (const line of lines) {
-    const p = await predictLine(line, byId.get(line.id), cache, weights, { consensusOnly: !enrichAi });
+    const p = await predictLine(line, byId.get(line.id), cache, w, { consensusOnly: !enrichAi });
     const edges = (p.prediction && p.prediction.edges) || [];
 
     // Выбираем лучший value-исход, проходящий фильтры. Ключевое: minProb режет
@@ -215,6 +229,7 @@ export async function scanValue({
         line: line.line, point: line.point ?? null,
         home: line.home, away: line.away, commence: line.commence,
         probs: p.prediction.probs,
+        source_probs: p.prediction.sourceProbs, // для самообучения весов
         valueBet: chosen
           ? { name: chosen.name, odds: chosen.odds, bookmaker: chosen.bookmaker, edgePct: chosen.edgePct, tier: chosen.tier }
           : null,

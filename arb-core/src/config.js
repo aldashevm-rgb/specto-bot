@@ -53,6 +53,10 @@ export const config = {
   },
   poissonMaxGoals: Number(process.env.ARB_POISSON_MAXGOALS) || 10,
 
+  // Самообучение: подстраивать веса источников по точности на сыгравших ставках.
+  learn: process.env.ARB_LEARN !== "0",                    // по умолчанию ВКЛ (ждёт данные)
+  learnMinSamples: Number(process.env.ARB_LEARN_MIN) || 20, // минимум оценок на источник
+
   // Параметры сканера.
   minMarginPct: Number(process.env.ARB_MIN_MARGIN) || 0.5, // мин. маржа вилки, %
   minEdgePct: Number(process.env.ARB_MIN_EDGE) || 2,       // мин. value-перевес у резких контор, %
@@ -89,7 +93,9 @@ export const config = {
   region: process.env.ODDS_REGION || "eu",                 // регион БК
   markets: parseMarkets(process.env.ODDS_MARKET || "h2h,totals"), // рынки: h2h,totals,spreads
   // Только эти конторы учитывать для рекомендации/лучшего кэфа (пусто = все).
-  myBooks: parseBooks(process.env.ARB_MY_BOOKS || "")
+  myBooks: parseBooks(process.env.ARB_MY_BOOKS || ""),
+  // Режим «только вилки»: вотчер шлёт лишь гарантированные вилки, без value-риска.
+  arbOnly: ["1", "true", "yes"].includes(String(process.env.ARB_ONLY || "").toLowerCase())
 };
 
 export function haveOddsApi() {

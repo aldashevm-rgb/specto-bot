@@ -14,6 +14,7 @@ import { fetchOdds } from "./sources/oddsApi.js";
 import { notifySurebets, notifyValues } from "./notify/telegram.js";
 import { surebetKey, valueKey, pickNew } from "./notify/dedup.js";
 import { runGrade } from "./store/gradeRun.js";
+import { learningStatus } from "./core/scanner.js";
 import { maybeOffer, pollConfirmations } from "./betting/autobet.js";
 import { haveOddsApi, haveTelegram, config } from "./config.js";
 
@@ -37,7 +38,8 @@ async function tick(opts, seen) {
   });
 
   const newSure = pickNew(sure.surebets, seen, surebetKey);
-  const newVal = pickNew(val.values, seen, valueKey);
+  // Режим «только вилки»: value-ставки (с риском) не шлём вовсе.
+  const newVal = config.arbOnly ? [] : pickNew(val.values, seen, valueKey);
 
   const ts = new Date().toLocaleTimeString("ru-RU");
   console.log(`[${ts}] линий ${val.scanned} · вилки ${sure.found} (нов ${newSure.length}) · ` +
@@ -102,8 +104,19 @@ async function main() {
   console.log(`Вотчер: ${opts.sport} · окно ${opts.maxHours > 0 ? opts.maxHours + "ч" : "выкл"} · ` +
     `интервал ${Math.round(intervalMs / 60000)}мин${opts.sharpOnly ? " · только резкие" : ""}`);
   console.log(`Telegram: ${haveTelegram() ? "ВКЛ" : "ВЫКЛ (шлём только в консоль; задай TELEGRAM_BOT_TOKEN/CHAT_ID)"}.`);
+  if (config.arbOnly) console.log("Режим: ТОЛЬКО ВИЛКИ (гарантированные) — value-ставки с риском отключены.");
   console.log(`≈${perDay} запросов/сутки (~${perDay * 30}/мес). Free-тариф Odds API ~500/мес — ` +
-    `для непрерывного вотча подними интервал или тариф. Ctrl+C — стоп.\n`);
+    `для непрерывного вотча подними интервал или тариф. Ctrl+C — стоп.`);
+  if (config.learn) {
+    const ls = learningStatus();
+    if (ls) {
+      const w = Object.entries(ls.weights).map(([k, v]) => `${k} ${v}`).join(", ");
+      console.log(`Самообучение: веса подстроены по ${Object.values(ls.samples)[0]}+ ставкам → ${w}.`);
+    } else {
+      console.log(`Самообучение ВКЛ: копит статистику (нужно ≥${config.learnMinSamples} сыгравших на источник).`);
+    }
+  }
+  console.log("");
 
   if (config.betting.enabled) {
     const m = config.betting.dryRun ? "DRY-RUN (реальные деньги НЕ трогаются)" : "РЕАЛЬНЫЕ ставки на Betfair";
