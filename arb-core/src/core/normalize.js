@@ -12,20 +12,20 @@
 export function bestOutcomes(event, marketKey = "h2h") {
   if (!event || !Array.isArray(event.bookmakers)) return null;
 
-  const best = new Map(); // name → { name, odds, bookmaker }
+  // name → [{ bookmaker, odds }] по всем БК (для сравнения кэфов).
+  const byName = new Map();
   for (const bk of event.bookmakers) {
     const market = (bk.markets || []).find(m => m.key === marketKey);
     if (!market) continue;
     for (const oc of market.outcomes || []) {
       const odds = Number(oc.price);
       if (!Number.isFinite(odds) || odds <= 1) continue;
-      const prev = best.get(oc.name);
-      if (!prev || odds > prev.odds) {
-        best.set(oc.name, { name: oc.name, odds, bookmaker: bk.title || bk.key });
-      }
+      const arr = byName.get(oc.name) || [];
+      arr.push({ bookmaker: bk.title || bk.key, odds });
+      byName.set(oc.name, arr);
     }
   }
-  if (best.size < 2) return null;
+  if (byName.size < 2) return null;
 
   return {
     id: event.id,
@@ -34,13 +34,19 @@ export function bestOutcomes(event, marketKey = "h2h") {
     home: event.home_team,
     away: event.away_team,
     market: marketKey,
-    bestOutcomes: [...best.values()]
+    bestOutcomes: [...byName.entries()].map(([name, arr]) => makeOutcome(name, arr))
   };
+}
+
+// Список котировок по исходу → лучший коэф. + отсортированный список books.
+function makeOutcome(name, books, extra = {}) {
+  books.sort((a, b) => b.odds - a.odds);
+  return { name, odds: books[0].odds, bookmaker: books[0].bookmaker, books, ...extra };
 }
 
 // --- Тоталы (Over/Under): лучший коэф. на каждую сторону В ПРЕДЕЛАХ линии ---
 function totalsLines(event) {
-  const byPoint = new Map(); // point → { Over:{best}, Under:{best} }
+  const byPoint = new Map(); // point → { Over:[{bk,odds}], Under:[...] }
   for (const bk of event.bookmakers || []) {
     const market = (bk.markets || []).find(m => m.key === "totals");
     if (!market) continue;
@@ -48,17 +54,17 @@ function totalsLines(event) {
       const odds = Number(oc.price);
       if (!Number.isFinite(odds) || odds <= 1 || oc.point == null) continue;
       const slot = byPoint.get(oc.point) || {};
-      const cur = slot[oc.name];
-      if (!cur || odds > cur.odds) {
-        slot[oc.name] = { name: oc.name, odds, point: oc.point, bookmaker: bk.title || bk.key };
-      }
+      (slot[oc.name] = slot[oc.name] || []).push({ bookmaker: bk.title || bk.key, odds });
       byPoint.set(oc.point, slot);
     }
   }
   const lines = [];
   for (const [point, slot] of byPoint) {
     if (slot.Over && slot.Under) {
-      lines.push({ line: `Тотал ${point}`, point, bestOutcomes: [slot.Over, slot.Under] });
+      lines.push({
+        line: `Тотал ${point}`, point,
+        bestOutcomes: [makeOutcome("Over", slot.Over, { point }), makeOutcome("Under", slot.Under, { point })]
+      });
     }
   }
   return lines;
@@ -68,26 +74,30 @@ function totalsLines(event) {
 function spreadsLines(event) {
   const home = event.home_team;
   const away = event.away_team;
-  const homeBest = new Map(); // point → {best}
-  const awayBest = new Map();
+  const homeBooks = new Map(); // point → [{bk,odds}]
+  const awayBooks = new Map();
   for (const bk of event.bookmakers || []) {
     const market = (bk.markets || []).find(m => m.key === "spreads");
     if (!market) continue;
     for (const oc of market.outcomes || []) {
       const odds = Number(oc.price);
       if (!Number.isFinite(odds) || odds <= 1 || oc.point == null) continue;
-      const target = oc.name === home ? homeBest : oc.name === away ? awayBest : null;
+      const target = oc.name === home ? homeBooks : oc.name === away ? awayBooks : null;
       if (!target) continue;
-      const cur = target.get(oc.point);
-      if (!cur || odds > cur.odds) {
-        target.set(oc.point, { name: oc.name, odds, point: oc.point, bookmaker: bk.title || bk.key });
-      }
+      const arr = target.get(oc.point) || [];
+      arr.push({ bookmaker: bk.title || bk.key, odds });
+      target.set(oc.point, arr);
     }
   }
   const lines = [];
-  for (const [ph, h] of homeBest) {
-    const a = awayBest.get(-ph); // зеркальная фора у гостей
-    if (a) lines.push({ line: `Фора ${ph > 0 ? "+" : ""}${ph}`, point: ph, bestOutcomes: [h, a] });
+  for (const [ph, hArr] of homeBooks) {
+    const aArr = awayBooks.get(-ph); // зеркальная фора у гостей
+    if (aArr) {
+      lines.push({
+        line: `Фора ${ph > 0 ? "+" : ""}${ph}`, point: ph,
+        bestOutcomes: [makeOutcome(home, hArr, { point: ph }), makeOutcome(away, aArr, { point: -ph })]
+      });
+    }
   }
   return lines;
 }

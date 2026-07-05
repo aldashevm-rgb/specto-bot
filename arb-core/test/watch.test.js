@@ -29,7 +29,10 @@ test("formatValueAlert: понятный текст (спорт, исход, к�
   const v = {
     id: "e1", sport: "soccer_epl", market: "h2h", line: null, point: null,
     home: "Hull<b>", away: "Man Utd", commence: "2026-08-22T16:30:00Z",
-    valueBet: { name: "Hull<b>", odds: 7.8, bookmaker: "Betfair", edgePct: 8.9, tier: "sharp" },
+    valueBet: {
+      name: "Hull<b>", odds: 7.8, bookmaker: "Betfair", edgePct: 8.9, tier: "sharp",
+      books: [{ bookmaker: "Betfair", odds: 7.8 }, { bookmaker: "1xBet", odds: 7.0 }]
+    },
     prediction: { probs: { "Hull<b>": 0.14, Draw: 0.21, "Man Utd": 0.65 } }
   };
   const msg = formatValueAlert(v, { bankroll: 1000, fraction: 0.25, maxFraction: 0.05 });
@@ -37,9 +40,11 @@ test("formatValueAlert: понятный текст (спорт, исход, к�
   assert.match(msg, /⚽ Футбол/);           // человеческое название спорта
   assert.match(msg, /Ставить на:/);
   assert.match(msg, /Победа Hull&lt;b&gt; \(П1\)/); // понятный исход + экранирование
-  assert.match(msg, /Коэффициент: <b>7\.8<\/b>/);
+  assert.match(msg, /Лучший коэф: <b>7\.8<\/b>/);
   assert.match(msg, /надёжная/);
   assert.match(msg, /Сумма ставки/);
+  assert.match(msg, /📊 Кэфы:.*Betfair 7\.8 ⭐/);   // сравнение кэфов, лучший помечен
+  assert.match(msg, /1xBet 7/);                     // и другая контора
   assert.doesNotMatch(msg, /soccer_epl/);   // сырого ключа спорта нет
 });
 
