@@ -53,6 +53,10 @@ export const config = {
   },
   poissonMaxGoals: Number(process.env.ARB_POISSON_MAXGOALS) || 10,
 
+  // Самообучение: подстраивать веса источников по точности на сыгравших ставках.
+  learn: process.env.ARB_LEARN !== "0",                    // по умолчанию ВКЛ (ждёт данные)
+  learnMinSamples: Number(process.env.ARB_LEARN_MIN) || 20, // минимум оценок на источник
+
   // Параметры сканера.
   minMarginPct: Number(process.env.ARB_MIN_MARGIN) || 0.5, // мин. маржа вилки, %
   minEdgePct: Number(process.env.ARB_MIN_EDGE) || 2,       // мин. value-перевес у резких контор, %
