@@ -2,6 +2,7 @@
 
 import { fileURLToPath } from "node:url";
 import { loadEnv } from "./util/loadEnv.js";
+import { parseBooks } from "./core/mybooks.js";
 
 // Подхватываем arb-core/.env (если есть) до чтения переменных ниже.
 // Реальные переменные окружения имеют приоритет над файлом.
@@ -83,7 +84,9 @@ export const config = {
   },
   totalStake: Number(process.env.ARB_STAKE) || 1000,       // банк на событие
   region: process.env.ODDS_REGION || "eu",                 // регион БК
-  markets: parseMarkets(process.env.ODDS_MARKET || "h2h,totals") // рынки: h2h,totals,spreads
+  markets: parseMarkets(process.env.ODDS_MARKET || "h2h,totals"), // рынки: h2h,totals,spreads
+  // Только эти конторы учитывать для рекомендации/лучшего кэфа (пусто = все).
+  myBooks: parseBooks(process.env.ARB_MY_BOOKS || "")
 };
 
 export function haveOddsApi() {

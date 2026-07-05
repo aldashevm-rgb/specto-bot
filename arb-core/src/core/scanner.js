@@ -20,6 +20,7 @@ import { readMatch } from "./motivation.js";
 import { marketConsensus } from "./devig.js";
 import { bookTier, bookWeight } from "./sharpness.js";
 import { withinWindow } from "../util/time.js";
+import { restrictBestOutcomes } from "./mybooks.js";
 import { upsertPredictions } from "../store/localLog.js";
 import { lambdasFromAverages, outcomeProbs, totalsProbs } from "./poisson.js";
 import { buildPrediction, hdaToNamed, ouToNamed, DEFAULT_WEIGHTS } from "./predict.js";
@@ -138,7 +139,9 @@ export async function scan({
   const raw = await fetchOddsFn(sport, { markets: markets.join(",") });
   const byId = new Map((raw || []).map(ev => [ev.id, ev]));
   const lines = normalizeEventsMulti(raw, markets)
-    .filter(l => withinWindow(l.commence, nowMs, maxHours));
+    .filter(l => withinWindow(l.commence, nowMs, maxHours))
+    // Рекомендация/вилка — только среди моих контор (если список задан).
+    .map(l => ({ ...l, bestOutcomes: restrictBestOutcomes(l.bestOutcomes, config.myBooks) }));
   const surebets = findSurebets(lines, { minMarginPct, totalStake });
 
   const cache = new Map();
@@ -178,7 +181,9 @@ export async function scanValue({
   const raw = await fetchOddsFn(sport, { markets: markets.join(",") });
   const byId = new Map((raw || []).map(ev => [ev.id, ev]));
   const lines = normalizeEventsMulti(raw, markets)
-    .filter(l => withinWindow(l.commence, nowMs, maxHours));
+    .filter(l => withinWindow(l.commence, nowMs, maxHours))
+    // Рекомендация — только среди моих контор (если список задан).
+    .map(l => ({ ...l, bestOutcomes: restrictBestOutcomes(l.bestOutcomes, config.myBooks) }));
 
   const cache = new Map();
   const values = [];
