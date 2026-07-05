@@ -5,6 +5,7 @@ import { config, haveTelegram } from "../config.js";
 import { withRetry } from "../util/http.js";
 import { kellyStake } from "../core/kelly.js";
 import { sportLabel, outcomeLabel, timeUntil } from "./labels.js";
+import { bookmakerUrl, searchUrl } from "./booklinks.js";
 
 // Экранирование для parse_mode=HTML (Telegram).
 function esc(s) {
@@ -79,7 +80,7 @@ export async function notifySurebets(surebets = [], minMarginPct = config.notify
   let sent = 0;
   for (const sb of surebets) {
     if (sb.arb.marginPct < minMarginPct) continue;
-    if (await sendTelegram(formatSurebet(sb))) sent += 1;
+    if (await sendTelegram(formatSurebet(sb), searchKeyboard(sb.home, sb.away))) sent += 1;
   }
   return sent;
 }
@@ -113,7 +114,8 @@ export async function notifyValues(values = [], kelly = null) {
   if (!haveTelegram()) return 0;
   let sent = 0;
   for (const v of values) {
-    if (await sendTelegram(formatValueAlert(v, kelly))) sent += 1;
+    const kb = linkKeyboard(v.valueBet.bookmaker, v.home, v.away);
+    if (await sendTelegram(formatValueAlert(v, kelly), kb)) sent += 1;
   }
   return sent;
 }
@@ -147,6 +149,20 @@ export function formatGradeResult(rec, kelly = null) {
 // Inline-клавиатура с кнопкой подтверждения ставки. cbData — callback_data.
 export function confirmKeyboard(cbData, label = "✅ Поставить") {
   return { inline_keyboard: [[{ text: label, callback_data: String(cbData) }]] };
+}
+
+// Клавиатура-ссылки: открыть контору + найти матч (ставишь сам в приложении).
+export function linkKeyboard(bookmaker, home, away) {
+  const row = [];
+  const url = bookmakerUrl(bookmaker);
+  if (url) row.push({ text: `🔗 Открыть ${bookmaker}`, url });
+  row.push({ text: "🔎 Найти матч", url: searchUrl(bookmaker, home, away) });
+  return { inline_keyboard: [row] };
+}
+
+// Клавиатура только с поиском (для вилок — там несколько контор).
+export function searchKeyboard(home, away) {
+  return { inline_keyboard: [[{ text: "🔎 Найти матч", url: searchUrl("", home, away) }]] };
 }
 
 // Опросить обновления Telegram (для нажатий кнопок). offset — с какого update_id.
