@@ -170,6 +170,7 @@ export async function scanValue({
   markets = config.markets,
   minEdgePct = config.minEdgePct,
   minEdgeSoftPct = config.minEdgeSoftPct,
+  minProb = config.minProb,
   sharpOnly = false,
   enrichAi = false,
   maxHours = config.maxHours,
@@ -190,22 +191,33 @@ export async function scanValue({
   const logRecords = [];
   for (const line of lines) {
     const p = await predictLine(line, byId.get(line.id), cache, weights, { consensusOnly: !enrichAi });
-    const top = p.prediction && p.prediction.top;
-    if (!top) continue;
-    const tier = bookTier(top.bookmaker);
-    const threshold = tier === "sharp" ? minEdgePct : minEdgeSoftPct;
-    const isValue = top.edgePct >= threshold && !(sharpOnly && tier !== "sharp");
-    if (isValue) values.push({ ...p, valueBet: { ...top, tier } });
+    const edges = (p.prediction && p.prediction.edges) || [];
 
-    // Логируем прогноз по КАЖДОЙ линии (не только value) — для честной оценки
-    // калибровки. valueBet проставляем, только если ставка прошла фильтр.
+    // Выбираем лучший value-исход, проходящий фильтры. Ключевое: minProb режет
+    // лонгшоты — исходы с низкой вероятностью (@20, ничьи в боксе), которые
+    // проигрывают почти всегда, даже будучи «выгодными».
+    let chosen = null;
+    for (const e of edges) { // отсортированы по перевесу убыв.
+      if (minProb && e.modelProb < minProb * 100) continue;
+      const tier = bookTier(e.bookmaker);
+      if (sharpOnly && tier !== "sharp") continue;
+      const threshold = tier === "sharp" ? minEdgePct : minEdgeSoftPct;
+      if (e.edgePct < threshold) continue;
+      chosen = { ...e, tier };
+      break;
+    }
+    if (chosen) values.push({ ...p, valueBet: chosen });
+
+    // Логируем прогноз по КАЖДОЙ линии — для честной оценки калибровки.
     if (logFile && p.prediction && p.prediction.probs) {
       logRecords.push({
         event_id: line.id, sport: line.sport, market: line.market,
         line: line.line, point: line.point ?? null,
         home: line.home, away: line.away, commence: line.commence,
         probs: p.prediction.probs,
-        valueBet: isValue ? { name: top.name, odds: top.odds, bookmaker: top.bookmaker, edgePct: top.edgePct, tier } : null,
+        valueBet: chosen
+          ? { name: chosen.name, odds: chosen.odds, bookmaker: chosen.bookmaker, edgePct: chosen.edgePct, tier: chosen.tier }
+          : null,
         logged_at: new Date(nowMs).toISOString()
       });
     }
@@ -216,4 +228,45 @@ export async function scanValue({
   if (logFile && logRecords.length) logged = upsertPredictions(logFile, logRecords);
 
   return { scanned: lines.length, found: values.length, windowHours: maxHours, logged, values };
+}
+
+// Безопасные пики для лесенки: по каждому событию берём самый вероятный исход
+// (фаворита) среди моих контор с шансом ≥ minProb. Сортировка по вероятности
+// убыв. (безопасные первыми). Возвращает массив пиков для buildLadder.
+export async function scanLadderPicks({
+  sport = "upcoming",
+  markets = ["h2h"],
+  minProb = 0.6,
+  maxHours = config.maxHours,
+  weights = config.weights || DEFAULT_WEIGHTS,
+  fetchOddsFn = fetchOdds,
+  nowMs = Date.now()
+} = {}) {
+  const raw = await fetchOddsFn(sport, { markets: markets.join(",") });
+  const byId = new Map((raw || []).map(ev => [ev.id, ev]));
+  const lines = normalizeEventsMulti(raw, markets)
+    .filter(l => withinWindow(l.commence, nowMs, maxHours))
+    .map(l => ({ ...l, bestOutcomes: restrictBestOutcomes(l.bestOutcomes, config.myBooks) }));
+
+  const cache = new Map();
+  const picks = [];
+  for (const line of lines) {
+    const p = await predictLine(line, byId.get(line.id), cache, weights, { consensusOnly: true });
+    if (!p.prediction || !p.prediction.probs) continue;
+    // Самый вероятный исход среди доступных у моих контор.
+    let best = null;
+    for (const o of line.bestOutcomes) {
+      const prob = p.prediction.probs[o.name];
+      if (prob == null) continue;
+      if (!best || prob > best.prob) best = { name: o.name, odds: o.odds, bookmaker: o.bookmaker, prob };
+    }
+    if (best && best.prob >= minProb) {
+      picks.push({
+        home: line.home, away: line.away, sport: line.sport, commence: line.commence,
+        market: line.market, point: line.point ?? null, ...best
+      });
+    }
+  }
+  picks.sort((a, b) => b.prob - a.prob); // безопасные первыми
+  return picks;
 }

@@ -52,7 +52,7 @@ async function tick(opts, seen) {
   }
 
   if (haveTelegram()) {
-    const kelly = { bankroll: opts.bankroll, fraction: config.kellyFraction, maxFraction: config.kellyMaxFraction };
+    const kelly = { bankroll: opts.bankroll, fraction: config.kellyFraction, maxFraction: config.kellyMaxFraction, minStake: config.minStake, maxStake: config.maxStake };
     const s = await notifySurebets(newSure);
     // value: Betfair-пики с включённой автоставкой шлём с кнопкой подтверждения,
     // остальные — обычным алертом.

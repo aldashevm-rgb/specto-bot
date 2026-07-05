@@ -56,7 +56,7 @@ export async function runGrade({ sportFilter = null, notify = false, nowMs = Dat
 
   let sent = 0;
   if (notify && haveTelegram()) {
-    const kelly = { bankroll: config.bankroll, fraction: config.kellyFraction, maxFraction: config.kellyMaxFraction };
+    const kelly = { bankroll: config.bankroll, fraction: config.kellyFraction, maxFraction: config.kellyMaxFraction, minStake: config.minStake, maxStake: config.maxStake };
     sent = await notifyResults(justGraded, kelly);
   }
 

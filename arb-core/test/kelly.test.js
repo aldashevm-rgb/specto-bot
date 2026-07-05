@@ -36,3 +36,19 @@ test("kellyStake: нет эджа → ставка 0", () => {
   assert.equal(k.stake, 0);
   assert.equal(k.fractionOfBank, 0);
 });
+
+test("kellyStake: минимум суммы поднимает мелкие ставки", () => {
+  // Кельли дал бы копейки (маленький банк) → поднимаем до минимума.
+  const k = kellyStake(0.55, 2.0, { bankroll: 1000, fraction: 0.25, maxFraction: 0.05, minStake: 5000 });
+  assert.equal(k.stake, 5000);
+});
+
+test("kellyStake: максимум суммы ограничивает крупные ставки", () => {
+  const k = kellyStake(0.6, 2.0, { bankroll: 1000000, fraction: 0.25, maxFraction: 1, maxStake: 10000 });
+  assert.equal(k.stake, 10000);
+});
+
+test("kellyStake: нет эджа → 0, минимум не форсим", () => {
+  const k = kellyStake(0.4, 2.0, { bankroll: 1000, minStake: 5000 });
+  assert.equal(k.stake, 0);
+});

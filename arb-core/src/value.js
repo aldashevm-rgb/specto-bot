@@ -30,7 +30,7 @@ function printValue(v, i, bankroll) {
     const p = pred.probs[b.name];
     if (p != null) {
       const k = kellyStake(p, b.odds, {
-        bankroll, fraction: config.kellyFraction, maxFraction: config.kellyMaxFraction
+        bankroll, fraction: config.kellyFraction, maxFraction: config.kellyMaxFraction, minStake: config.minStake, maxStake: config.maxStake
       });
       const capped = k.fullKelly * config.kellyFraction > config.kellyMaxFraction ? " (потолок)" : "";
       console.log(`     ставка: ${k.stake} — ${(k.fractionOfBank * 100).toFixed(1)}% банка ` +

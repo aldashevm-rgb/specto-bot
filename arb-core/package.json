@@ -12,6 +12,7 @@
     "value": "node src/value.js",
     "grade": "node src/grade.js",
     "dashboard": "node src/dashboard.js",
+    "ladder": "node src/ladder.js",
     "web": "node src/web.js",
     "watch": "node src/watch.js",
     "tg-setup": "node src/setup-telegram.js",

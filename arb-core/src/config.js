@@ -57,6 +57,7 @@ export const config = {
   minMarginPct: Number(process.env.ARB_MIN_MARGIN) || 0.5, // мин. маржа вилки, %
   minEdgePct: Number(process.env.ARB_MIN_EDGE) || 2,       // мин. value-перевес у резких контор, %
   minEdgeSoftPct: Number(process.env.ARB_MIN_EDGE_SOFT) || 4, // выше порог у софт-контор, %
+  minProb: Number(process.env.ARB_MIN_PROB) || 0,          // мин. вероятность исхода (0..1) — режет лонгшоты
   maxHours: Number(process.env.ARB_MAX_HOURS ?? 72),       // окно до матча, ч (0 = без ограничения)
 
   // Автогрейдинг: локальный лог прогнозов и окно результатов The Odds API.
@@ -67,6 +68,8 @@ export const config = {
   bankroll: Number(process.env.ARB_BANKROLL) || 1000,
   kellyFraction: Number(process.env.ARB_KELLY_FRACTION ?? 0.25),   // четверть-Кельли
   kellyMaxFraction: Number(process.env.ARB_KELLY_MAX ?? 0.05),     // потолок 5% банка/ставка
+  minStake: Number(process.env.ARB_MIN_STAKE) || 0,               // мин. сумма ставки в деньгах (0 = нет)
+  maxStake: Number(process.env.ARB_MAX_STAKE) || 0,               // макс. сумма ставки в деньгах (0 = нет)
 
   // Автоставка через биржу Betfair (с подтверждением кнопкой в Telegram).
   // ПО УМОЛЧАНИЮ ВЫКЛ и DRY-RUN — реальные деньги не трогаются, пока сам не включишь.
