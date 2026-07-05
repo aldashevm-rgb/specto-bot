@@ -7,9 +7,9 @@ COPY package.json ./
 RUN npm install --omit=dev || true
 COPY . .
 
-# Лог прогнозов — на volume, чтобы переживал рестарты (для грейдинга/дедупа).
-ENV ARB_LOG_FILE=/data/predictions.jsonl
-VOLUME ["/data"]
-
-# Ключи и параметры передаются переменными окружения (см. DEPLOY.md).
+# Ключи и параметры — через переменные окружения (см. DEPLOY.md).
+# По умолчанию лог прогнозов пишется в папку приложения (эфемерно). Для
+# сохранения между рестартами: примонтируй Railway Volume (или docker volume)
+# и задай ARB_LOG_FILE=<точка_монтирования>/predictions.jsonl.
+# ВНИМАНИЕ: Railway не поддерживает инструкцию VOLUME — тома задаются в UI Railway.
 CMD ["node", "src/watch.js"]

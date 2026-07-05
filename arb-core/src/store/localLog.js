@@ -2,7 +2,8 @@
 // прогнозы; грейдинг потом сверяет их с фактическим результатом. Чтение/запись
 // и слияние вынесены в чистые функции (парсинг/merge тестируются без диска).
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 
 // Ключ записи — событие+рынок+линия. Одна запись на линию.
 export function logKey(r) {
@@ -47,6 +48,9 @@ export function readLog(filePath) {
 }
 
 export function writeLog(filePath, records) {
+  // Создаём каталог, если его нет (напр. /data без примонтированного тома) —
+  // чтобы запись не падала ни с томом, ни без него.
+  try { mkdirSync(dirname(filePath), { recursive: true }); } catch { /* уже есть */ }
   writeFileSync(filePath, serializeLog(records));
 }
 
