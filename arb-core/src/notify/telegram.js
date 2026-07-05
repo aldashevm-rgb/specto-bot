@@ -98,8 +98,9 @@ export function formatValueAlert(v, kelly = null) {
     `🕒 ${timeUntil(v.commence, _now())}`,
     ``,
     `✅ Ставить на: <b>${esc(pick)}</b>`,
+    b.modelProb != null ? `🎯 Шанс по модели: <b>${Math.round(b.modelProb)}%</b>` : null,
     `💵 Лучший коэф: <b>${b.odds}</b> — ${esc(b.bookmaker)} (${rel})`
-  ];
+  ].filter(x => x !== null);
   // Сравнение кэфов по конторам: где больше, отмечено ⭐.
   if (Array.isArray(b.books) && b.books.length > 1) {
     const cmp = b.books.slice(0, 4)

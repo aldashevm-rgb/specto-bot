@@ -170,6 +170,7 @@ export async function scanValue({
   markets = config.markets,
   minEdgePct = config.minEdgePct,
   minEdgeSoftPct = config.minEdgeSoftPct,
+  minProb = config.minProb,
   sharpOnly = false,
   enrichAi = false,
   maxHours = config.maxHours,
@@ -190,22 +191,33 @@ export async function scanValue({
   const logRecords = [];
   for (const line of lines) {
     const p = await predictLine(line, byId.get(line.id), cache, weights, { consensusOnly: !enrichAi });
-    const top = p.prediction && p.prediction.top;
-    if (!top) continue;
-    const tier = bookTier(top.bookmaker);
-    const threshold = tier === "sharp" ? minEdgePct : minEdgeSoftPct;
-    const isValue = top.edgePct >= threshold && !(sharpOnly && tier !== "sharp");
-    if (isValue) values.push({ ...p, valueBet: { ...top, tier } });
+    const edges = (p.prediction && p.prediction.edges) || [];
 
-    // Логируем прогноз по КАЖДОЙ линии (не только value) — для честной оценки
-    // калибровки. valueBet проставляем, только если ставка прошла фильтр.
+    // Выбираем лучший value-исход, проходящий фильтры. Ключевое: minProb режет
+    // лонгшоты — исходы с низкой вероятностью (@20, ничьи в боксе), которые
+    // проигрывают почти всегда, даже будучи «выгодными».
+    let chosen = null;
+    for (const e of edges) { // отсортированы по перевесу убыв.
+      if (minProb && e.modelProb < minProb * 100) continue;
+      const tier = bookTier(e.bookmaker);
+      if (sharpOnly && tier !== "sharp") continue;
+      const threshold = tier === "sharp" ? minEdgePct : minEdgeSoftPct;
+      if (e.edgePct < threshold) continue;
+      chosen = { ...e, tier };
+      break;
+    }
+    if (chosen) values.push({ ...p, valueBet: chosen });
+
+    // Логируем прогноз по КАЖДОЙ линии — для честной оценки калибровки.
     if (logFile && p.prediction && p.prediction.probs) {
       logRecords.push({
         event_id: line.id, sport: line.sport, market: line.market,
         line: line.line, point: line.point ?? null,
         home: line.home, away: line.away, commence: line.commence,
         probs: p.prediction.probs,
-        valueBet: isValue ? { name: top.name, odds: top.odds, bookmaker: top.bookmaker, edgePct: top.edgePct, tier } : null,
+        valueBet: chosen
+          ? { name: chosen.name, odds: chosen.odds, bookmaker: chosen.bookmaker, edgePct: chosen.edgePct, tier: chosen.tier }
+          : null,
         logged_at: new Date(nowMs).toISOString()
       });
     }

@@ -33,7 +33,7 @@ function kellyFor(v) {
   const p = v.prediction && v.prediction.probs ? v.prediction.probs[b.name] : null;
   if (p == null) return 0;
   return kellyStake(p, b.odds, {
-    bankroll: config.bankroll, fraction: config.kellyFraction, maxFraction: config.kellyMaxFraction
+    bankroll: config.bankroll, fraction: config.kellyFraction, maxFraction: config.kellyMaxFraction, minStake: config.minStake, maxStake: config.maxStake
   }).stake;
 }
 
@@ -51,7 +51,7 @@ export async function maybeOffer(v, nowMs = Date.now()) {
     home: v.home, away: v.away, outcomeName: b.name, price: b.odds, size: stake, commence: v.commence
   }, nowMs, config.betting.confirmTtlMs);
 
-  const kelly = { bankroll: config.bankroll, fraction: config.kellyFraction, maxFraction: config.kellyMaxFraction };
+  const kelly = { bankroll: config.bankroll, fraction: config.kellyFraction, maxFraction: config.kellyMaxFraction, minStake: config.minStake, maxStake: config.maxStake };
   const mode = config.betting.dryRun ? "\n🧪 режим DRY-RUN (реальные деньги не трогаются)" : "";
   await sendTelegram(
     formatValueAlert(v, kelly) + `\n\nПоставить эту ставку на Betfair?${mode}`,

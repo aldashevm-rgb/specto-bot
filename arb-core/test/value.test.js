@@ -46,3 +46,28 @@ test("scanValue: сортировка по убыванию перевеса", a
     assert.ok(r.values[i - 1].valueBet.edgePct >= r.values[i].valueBet.edgePct);
   }
 });
+
+test("scanValue: minProb режет лонгшоты (низкая вероятность исхода)", async () => {
+  // Событие с явным фаворитом и щедрым лонгшотом на аутсайдера.
+  const S = [{
+    id: "lp", sport_key: "soccer", commence_time: "2026-07-11T18:00:00Z",
+    home_team: "Fav", away_team: "Dog",
+    bookmakers: [
+      { key: "p", title: "Pinnacle", markets: [{ key: "h2h", outcomes: [
+        { name: "Fav", price: 1.4 }, { name: "Draw", price: 4.5 }, { name: "Dog", price: 8.0 } ] }] },
+      { key: "s", title: "1xBet", markets: [{ key: "h2h", outcomes: [
+        { name: "Fav", price: 1.45 }, { name: "Draw", price: 4.6 }, { name: "Dog", price: 11.0 } ] }] } // щедрый лонгшот
+    ]
+  }];
+  // Без minProb — может флагнуть лонгшот Dog @ 11.
+  const loose = await scanValue({ sport: "s", markets: ["h2h"], minEdgePct: 1, minEdgeSoftPct: 1,
+    minProb: 0, maxHours: 0, fetchOddsFn: async () => S });
+  // С minProb 0.4 — лонгшот (шанс ~10%) отсекается; останется только исход с шансом ≥40% или ничего.
+  const strict = await scanValue({ sport: "s", markets: ["h2h"], minEdgePct: 1, minEdgeSoftPct: 1,
+    minProb: 0.4, maxHours: 0, fetchOddsFn: async () => S });
+  for (const v of strict.values) {
+    assert.ok(v.valueBet.modelProb >= 40, `лонгшот не должен пройти: ${v.valueBet.name} ${v.valueBet.modelProb}%`);
+  }
+  // Строгий фильтр даёт не больше ставок, чем свободный.
+  assert.ok(strict.found <= loose.found);
+});

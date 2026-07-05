@@ -49,7 +49,7 @@ function printValue(v, i, bankroll) {
   const p = v.prediction && v.prediction.probs[b.name];
   if (p != null) {
     const k = kellyStake(p, b.odds, {
-      bankroll, fraction: config.kellyFraction, maxFraction: config.kellyMaxFraction
+      bankroll, fraction: config.kellyFraction, maxFraction: config.kellyMaxFraction, minStake: config.minStake, maxStake: config.maxStake
     });
     console.log(`     ставка ${k.stake} (${(k.fractionOfBank * 100).toFixed(1)}% банка, ` +
       `${config.kellyFraction}·Kelly) · модель ${Math.round(p * 100)}%`);
