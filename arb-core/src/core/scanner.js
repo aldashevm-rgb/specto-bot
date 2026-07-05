@@ -229,3 +229,44 @@ export async function scanValue({
 
   return { scanned: lines.length, found: values.length, windowHours: maxHours, logged, values };
 }
+
+// Безопасные пики для лесенки: по каждому событию берём самый вероятный исход
+// (фаворита) среди моих контор с шансом ≥ minProb. Сортировка по вероятности
+// убыв. (безопасные первыми). Возвращает массив пиков для buildLadder.
+export async function scanLadderPicks({
+  sport = "upcoming",
+  markets = ["h2h"],
+  minProb = 0.6,
+  maxHours = config.maxHours,
+  weights = config.weights || DEFAULT_WEIGHTS,
+  fetchOddsFn = fetchOdds,
+  nowMs = Date.now()
+} = {}) {
+  const raw = await fetchOddsFn(sport, { markets: markets.join(",") });
+  const byId = new Map((raw || []).map(ev => [ev.id, ev]));
+  const lines = normalizeEventsMulti(raw, markets)
+    .filter(l => withinWindow(l.commence, nowMs, maxHours))
+    .map(l => ({ ...l, bestOutcomes: restrictBestOutcomes(l.bestOutcomes, config.myBooks) }));
+
+  const cache = new Map();
+  const picks = [];
+  for (const line of lines) {
+    const p = await predictLine(line, byId.get(line.id), cache, weights, { consensusOnly: true });
+    if (!p.prediction || !p.prediction.probs) continue;
+    // Самый вероятный исход среди доступных у моих контор.
+    let best = null;
+    for (const o of line.bestOutcomes) {
+      const prob = p.prediction.probs[o.name];
+      if (prob == null) continue;
+      if (!best || prob > best.prob) best = { name: o.name, odds: o.odds, bookmaker: o.bookmaker, prob };
+    }
+    if (best && best.prob >= minProb) {
+      picks.push({
+        home: line.home, away: line.away, sport: line.sport, commence: line.commence,
+        market: line.market, point: line.point ?? null, ...best
+      });
+    }
+  }
+  picks.sort((a, b) => b.prob - a.prob); // безопасные первыми
+  return picks;
+}
