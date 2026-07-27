@@ -16,6 +16,23 @@ test("renderHotHtml: выводит счётчик, балл и поля про�
   assert.match(html, /позвонить/);
 });
 
+test("renderHotHtml: телефон — кликабельная кнопка дозвона (tel: + wa.me)", () => {
+  const html = renderHotHtml([
+    { name: "Игорь", phone: "+7 (701) 234-56-78", ai_qual_score: 82, ai_qual_profile: {} }
+  ]);
+  // Кнопка звонка: tel: только с цифрами, отображается исходный номер.
+  assert.match(html, /href="tel:\+77012345678"/);
+  // Кнопка WhatsApp.
+  assert.match(html, /href="https:\/\/wa\.me\/77012345678"/);
+});
+
+test("renderHotHtml: пустой телефон → без битой ссылки", () => {
+  const html = renderHotHtml([
+    { name: "Игорь", phone: "", ai_qual_score: 82, ai_qual_profile: {} }
+  ]);
+  assert.doesNotMatch(html, /href="tel:/);
+});
+
 test("renderHotHtml: экранирует HTML в данных лида (XSS)", () => {
   const html = renderHotHtml([
     { name: "<script>alert(1)</script>", phone: "x", ai_qual_score: 50, ai_qual_profile: {} }

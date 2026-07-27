@@ -6,6 +6,25 @@ function esc(s) {
   }[c]));
 }
 
+// Только цифры номера — безопасно для href (tel:/wa.me). WhatsApp хранит
+// телефон в международном формате без «+», так что цифр достаточно.
+function digits(s) {
+  return String(s ?? "").replace(/\D/g, "");
+}
+
+// Ячейка с телефоном: кликабельные кнопки дозвона (звонок + WhatsApp).
+// Если номера нет — просто прочерк.
+function phoneCell(phone) {
+  const d = digits(phone);
+  if (!d) return "<td>—</td>";
+  return (
+    "<td class=\"phone\">" +
+    `<a class="call" href="tel:+${d}" title="Позвонить">📞 ${esc(phone)}</a>` +
+    `<a class="wa" href="https://wa.me/${d}" target="_blank" rel="noopener" title="Написать в WhatsApp">WhatsApp</a>` +
+    "</td>"
+  );
+}
+
 // leads: массив строк из getHotLeads. Возвращает строку HTML.
 export function renderHotHtml(leads = []) {
   const rows = leads.map((l) => {
@@ -14,7 +33,7 @@ export function renderHotHtml(leads = []) {
       "<tr>" +
       `<td class="s">${esc(l.ai_qual_score)}</td>` +
       `<td>${esc(l.name)}</td>` +
-      `<td>${esc(l.phone)}</td>` +
+      phoneCell(l.phone) +
       `<td>${esc(p.readiness)}</td>` +
       `<td>${esc(p.category || p.niche)}</td>` +
       `<td>${esc(p.urgency)}</td>` +
@@ -35,6 +54,12 @@ export function renderHotHtml(leads = []) {
     ".s{font-weight:700;text-align:center}" +
     "tr:hover{background:#fafafa}" +
     "h2{margin:0 0 16px}" +
+    ".phone{white-space:nowrap}" +
+    ".phone a{display:inline-block;text-decoration:none;padding:4px 8px;border-radius:6px;font-size:13px;margin:1px 0}" +
+    ".call{background:#e8f5e9;color:#1b5e20;font-weight:600}" +
+    ".call:hover{background:#c8e6c9}" +
+    ".wa{background:#e3f2fd;color:#0d47a1;margin-left:4px}" +
+    ".wa:hover{background:#bbdefb}" +
     "</style></head><body>" +
     `<h2>🔥 Горячие лиды (${leads.length})</h2>` +
     "<table><thead><tr>" +
