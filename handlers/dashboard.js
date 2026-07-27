@@ -6,16 +6,29 @@ function esc(s) {
   }[c]));
 }
 
-// Только цифры номера — безопасно для href (tel:/wa.me). WhatsApp хранит
-// телефон в международном формате без «+», так что цифр достаточно.
-function digits(s) {
-  return String(s ?? "").replace(/\D/g, "");
+// Код страны по умолчанию для номеров без международного префикса.
+// SPECTO работает по Казахстану (+7). Переопределяется DASHBOARD_COUNTRY_CODE.
+const DEFAULT_CC = String(process.env.DASHBOARD_COUNTRY_CODE || "7").replace(/\D/g, "") || "7";
+
+// Приводит номер к международному виду (только цифры, с кодом страны) —
+// безопасно для href (tel:/wa.me). WhatsApp обычно уже отдаёт международный
+// формат, но лид мог быть записан локально (8…, 0…, или 10 цифр без кода).
+export function normalizePhone(raw, cc = DEFAULT_CC) {
+  let d = String(raw ?? "").replace(/\D/g, "");
+  if (!d) return "";
+  // Локальный формат РФ/КЗ: 8XXXXXXXXXX → 7XXXXXXXXXX.
+  if (d.length === 11 && d.startsWith("8")) d = cc + d.slice(1);
+  // Ведущие нули (набор из-за границы «00…» или локальный «0…») — убрать.
+  else if (d.startsWith("0")) d = cc + d.replace(/^0+/, "");
+  // 10 цифр без кода страны — дописать код.
+  else if (d.length === 10) d = cc + d;
+  return d;
 }
 
 // Ячейка с телефоном: кликабельные кнопки дозвона (звонок + WhatsApp).
 // Если номера нет — просто прочерк.
 function phoneCell(phone) {
-  const d = digits(phone);
+  const d = normalizePhone(phone);
   if (!d) return "<td>—</td>";
   return (
     "<td class=\"phone\">" +

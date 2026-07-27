@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { renderHotHtml } from "../handlers/dashboard.js";
+import { renderHotHtml, normalizePhone } from "../handlers/dashboard.js";
 import { isStuck } from "../handlers/watchdog.js";
 import { parseQualification } from "../handlers/qualify.js";
 
@@ -24,6 +24,20 @@ test("renderHotHtml: телефон — кликабельная кнопка д
   assert.match(html, /href="tel:\+77012345678"/);
   // Кнопка WhatsApp.
   assert.match(html, /href="https:\/\/wa\.me\/77012345678"/);
+});
+
+test("normalizePhone: приводит локальные форматы к коду страны (+7)", () => {
+  assert.equal(normalizePhone("77012345678"), "77012345678");      // уже международный
+  assert.equal(normalizePhone("+7 (701) 234-56-78"), "77012345678"); // с плюсом/разделителями
+  assert.equal(normalizePhone("87012345678"), "77012345678");       // локальный 8…
+  assert.equal(normalizePhone("7012345678"), "77012345678");        // 10 цифр без кода
+  assert.equal(normalizePhone("07012345678"), "77012345678");       // ведущий 0
+  assert.equal(normalizePhone(""), "");
+  assert.equal(normalizePhone(null), "");
+});
+
+test("normalizePhone: код страны настраивается", () => {
+  assert.equal(normalizePhone("07012345678", "44"), "447012345678");
 });
 
 test("renderHotHtml: пустой телефон → без битой ссылки", () => {
