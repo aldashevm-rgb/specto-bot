@@ -60,11 +60,29 @@ function toOpenAITools(tools) {
 
 let idCounter = 0;
 
+// Резерв ответа. У бесплатных тарифов (Groq) лимит токенов/минуту считает и
+// max_tokens — большой резерв быстро упирается в лимит. Держим умеренно.
+const MAX_TOKENS = Number(process.env.COPILOT_MAX_TOKENS) || 4096;
+
+// POST с авто-повтором при 429 (rate limit): ждём секунды из тела ответа и
+// пробуем снова — так бесплатный тариф не роняет запрос, а просто притормаживает.
+async function postWithRetry(url, opts, onEvent, maxRetries = 5) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, opts);
+    if (res.status !== 429 || attempt >= maxRetries) return res;
+    const body = await res.text().catch(() => "");
+    const m = body.match(/try again in ([\d.]+)\s*s/i);
+    const waitS = m ? Math.min(Math.ceil(parseFloat(m[1])) + 1, 60) : 8;
+    onEvent({ type: "text", text: `\n⏳ Лимит бесплатного тарифа — жду ${waitS}с и продолжаю...\n` });
+    await new Promise((r) => setTimeout(r, waitS * 1000));
+  }
+}
+
 // Стримит один ход через OpenAI-совместимый эндпоинт.
 // cfg: { baseUrl, apiKey, model }
 export async function streamOpenAI(
   cfg,
-  { system, messages, tools, maxTokens = 8192 },
+  { system, messages, tools, maxTokens = MAX_TOKENS },
   onEvent = () => {}
 ) {
   const body = {
@@ -78,14 +96,18 @@ export async function streamOpenAI(
     body.tool_choice = "auto";
   }
 
-  const res = await fetch(cfg.baseUrl.replace(/\/$/, "") + "/chat/completions", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...(cfg.apiKey ? { authorization: "Bearer " + cfg.apiKey } : {}),
+  const res = await postWithRetry(
+    cfg.baseUrl.replace(/\/$/, "") + "/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(cfg.apiKey ? { authorization: "Bearer " + cfg.apiKey } : {}),
+      },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-  });
+    onEvent
+  );
 
   if (!res.ok || !res.body) {
     const t = await res.text().catch(() => "");
