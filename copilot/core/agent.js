@@ -79,10 +79,27 @@ function trimForRequest(history, keepRecent = 4, capChars = 6000) {
 // history — массив сообщений [{role, content}] (мутируется: дописываются ходы).
 // onEvent получает события из client + {type:'tool_result', name, ok, preview}
 //   и {type:'turn_end'} по завершении.
-export async function runAgent({ history, root, provider, maxSteps = 60, onEvent = () => {} }) {
+// Инструмент авто-эскалации: бесплатная модель сама зовёт его, когда задача
+// слишком сложная, и решение продолжает умная модель.
+const ESCALATE_TOOL = {
+  name: "escalate",
+  description:
+    "Передать текущую задачу более умной модели, если она слишком сложная для тебя (крупный рефакторинг, хитрый баг, нетривиальная логика или архитектура). Используй ЭКОНОМНО — только когда реально буксуешь; простое решай сам.",
+  input_schema: {
+    type: "object",
+    properties: { reason: { type: "string", description: "Почему нужна умная модель" } },
+  },
+};
+
+// provider — с чего начинаем (по умолчанию основной, бесплатный).
+// escalateTo — сильная модель для авто-эскалации (или null, если недоступна).
+export async function runAgent({ history, root, provider, escalateTo, maxSteps = 60, onEvent = () => {} }) {
   const ctx = { root };
-  const cfg = provider || mainProvider();
+  let cfg = provider || mainProvider();
   const system = loadSystemPrompt(root);
+  const canEscalate =
+    escalateTo && (escalateTo.kind !== cfg.kind || escalateTo.model !== cfg.model);
+  let escalated = false;
   let steps = 0;
 
   for (;;) {
@@ -91,24 +108,31 @@ export async function runAgent({ history, root, provider, maxSteps = 60, onEvent
       break;
     }
 
-    const res = await streamTurn(
-      cfg,
-      {
-        system,
-        messages: trimForRequest(history),
-        tools: TOOL_DEFS,
-      },
-      onEvent
-    );
+    const tools = canEscalate && !escalated ? [...TOOL_DEFS, ESCALATE_TOOL] : TOOL_DEFS;
+    const res = await streamTurn(cfg, { system, messages: trimForRequest(history), tools }, onEvent);
 
     history.push({ role: "assistant", content: res.content });
 
     if (res.stop_reason !== "tool_use") break;
 
-    // Выполняем все запрошенные инструменты, результаты — одним user-сообщением.
     const toolUses = res.content.filter((b) => b.type === "tool_use");
     const results = [];
     for (const tu of toolUses) {
+      // Эскалация: переключаемся на умную модель до конца задачи.
+      if (tu.name === "escalate" && canEscalate) {
+        escalated = true;
+        cfg = escalateTo;
+        onEvent({ type: "text", text: `\n⬆️ Задача сложная — переключаюсь на умную модель (${escalateTo.label}).\n` });
+        onEvent({ type: "tool_result", name: "escalate", input: tu.input, ok: true, preview: "→ " + escalateTo.label });
+        results.push({
+          type: "tool_result",
+          tool_use_id: tu.id,
+          content: "Теперь ты — более умная модель. Продолжай и доведи задачу до конца.",
+          is_error: false,
+        });
+        continue;
+      }
+
       let ok = true;
       let output;
       try {

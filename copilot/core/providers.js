@@ -74,6 +74,13 @@ export function strongProvider() {
   return resolveProvider(env.COPILOT_STRONG || "anthropic");
 }
 
+// Есть ли у провайдера рабочий ключ (для авто-эскалации на сильную модель).
+export function providerHasKey(cfg) {
+  if (!cfg) return false;
+  if (cfg.kind === "anthropic") return !!process.env.ANTHROPIC_API_KEY;
+  return !!cfg.apiKey && cfg.apiKey !== "ollama" && cfg.apiKey !== "none";
+}
+
 // Единый вызов одного хода — диспетчеризует по kind.
 export function streamTurn(cfg, params, onEvent) {
   if (cfg.kind === "anthropic") {

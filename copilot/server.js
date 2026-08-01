@@ -13,7 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
 import { runAgent } from "./core/agent.js";
-import { mainProvider, strongProvider } from "./core/providers.js";
+import { mainProvider, strongProvider, providerHasKey } from "./core/providers.js";
 import { loadEnv } from "./core/loadEnv.js";
 
 loadEnv(); // подхватить .copilot.env из текущей папки до чтения настроек
@@ -84,7 +84,17 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "POST" && url.pathname === "/api/chat") {
     const { sessionId: sid, message, strong } = await readBody(req);
-    const provider = strong ? strongProvider() : mainProvider();
+    // Галочка «умнее» — принудительно сильная модель. Иначе авто: старт на
+    // основной (бесплатной), эскалация на сильную по решению модели (если есть ключ).
+    let provider, escalateTo;
+    if (strong) {
+      provider = strongProvider();
+      escalateTo = null;
+    } else {
+      provider = mainProvider();
+      const s = strongProvider();
+      escalateTo = providerHasKey(s) ? s : null;
+    }
     const sessionId = sid || crypto.randomUUID();
     if (!message) {
       res.writeHead(400);
@@ -104,7 +114,7 @@ const server = http.createServer(async (req, res) => {
     history.push({ role: "user", content: message });
 
     try {
-      await runAgent({ history, root: ROOT, provider, onEvent: send });
+      await runAgent({ history, root: ROOT, provider, escalateTo, onEvent: send });
     } catch (e) {
       send({ type: "error", message: e.message });
     }
