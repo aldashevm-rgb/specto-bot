@@ -1,6 +1,8 @@
 // Агентный цикл кодинг-ассистента. Модель думает, вызывает инструменты,
 // видит результаты и продолжает, пока не завершит ход (end_turn).
 
+import fs from "node:fs";
+import path from "node:path";
 import { streamTurn, mainProvider } from "./providers.js";
 import { TOOL_DEFS, runTool } from "./tools.js";
 
@@ -8,20 +10,70 @@ export const SYSTEM_PROMPT = `Ты — кодинг-ассистент (анал
 
 Твои возможности через инструменты: читать и искать по файлам, писать и править код, запускать команды (сборка, тесты, git).
 
-Принципы:
-- Прежде чем менять код — изучи существующий: прочитай нужные файлы, найди связанные места.
+Как вести многошаговые задачи:
+- Разбей задачу на шаги и выполняй по одному: сначала изучи код (прочитай файлы, найди связанные места), потом меняй.
 - Делай минимальные точечные изменения в стиле окружающего кода. Не переписывай лишнего.
-- После правок по возможности проверь себя: запусти тесты или линтер.
-- Отвечай кратко и по делу. Веди пользователя: скажи, что делаешь, и что получилось.
-- Пиши на русском, если пользователь пишет на русском.`;
+- После правок проверь себя: запусти тесты или линтер, при ошибке — исправь и повтори.
+- Доводи задачу до конца. Не останавливайся на середине; сообщай о завершении, только когда всё готово.
+- Отвечай кратко. Веди пользователя: скажи, что делаешь и что получилось. По-русски, если пользователь пишет по-русски.`;
+
+// Файлы с инструкциями проекта (как AGENTS.md у Codex / CLAUDE.md). Если есть в
+// корне — их содержимое добавляется к системному промпту, и ассистент следует
+// правилам проекта.
+const INSTRUCTION_FILES = ["AGENTS.md", "COPILOT.md", ".copilot.md", "CLAUDE.md"];
+
+function loadSystemPrompt(root) {
+  for (const name of INSTRUCTION_FILES) {
+    try {
+      const txt = fs.readFileSync(path.join(root, name), "utf8");
+      if (txt.trim()) {
+        return `${SYSTEM_PROMPT}\n\n# Инструкции проекта (${name}) — соблюдай их\n${txt.slice(0, 6000)}`;
+      }
+    } catch {
+      /* нет файла — пропускаем */
+    }
+  }
+  return SYSTEM_PROMPT;
+}
+
+// Управление контекстом: перед отправкой сворачиваем старые результаты
+// инструментов, оставляя последние keepRecent в полном виде. Так длинная
+// многошаговая задача не упирается в лимит токенов (важно для бесплатных
+// тарифов). Полная история хранится локально — режется только копия для запроса.
+function trimForRequest(history, keepRecent = 4, capChars = 6000) {
+  const total = history.reduce(
+    (n, m) => n + (Array.isArray(m.content) ? m.content.filter((b) => b.type === "tool_result").length : 0),
+    0
+  );
+  let idx = 0;
+  return history.map((m) => {
+    if (!Array.isArray(m.content)) return m;
+    return {
+      ...m,
+      content: m.content.map((b) => {
+        if (b.type !== "tool_result") return b;
+        const myIdx = idx++;
+        const s = typeof b.content === "string" ? b.content : JSON.stringify(b.content);
+        if (myIdx < total - keepRecent && s.length > 200) {
+          return { ...b, content: `[результат инструмента свёрнут для экономии контекста — ${s.length} симв.]` };
+        }
+        if (s.length > capChars) {
+          return { ...b, content: s.slice(0, capChars) + "\n…[обрезано]" };
+        }
+        return b;
+      }),
+    };
+  });
+}
 
 // Прогоняет один пользовательский запрос через агентный цикл.
 // history — массив сообщений [{role, content}] (мутируется: дописываются ходы).
 // onEvent получает события из client + {type:'tool_result', name, ok, preview}
 //   и {type:'turn_end'} по завершении.
-export async function runAgent({ history, root, provider, maxSteps = 40, onEvent = () => {} }) {
+export async function runAgent({ history, root, provider, maxSteps = 60, onEvent = () => {} }) {
   const ctx = { root };
   const cfg = provider || mainProvider();
+  const system = loadSystemPrompt(root);
   let steps = 0;
 
   for (;;) {
@@ -33,8 +85,8 @@ export async function runAgent({ history, root, provider, maxSteps = 40, onEvent
     const res = await streamTurn(
       cfg,
       {
-        system: SYSTEM_PROMPT,
-        messages: history,
+        system,
+        messages: trimForRequest(history),
         tools: TOOL_DEFS,
       },
       onEvent
