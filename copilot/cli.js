@@ -7,6 +7,9 @@ import readline from "node:readline";
 import path from "node:path";
 import { runAgent } from "./core/agent.js";
 import { mainProvider, strongProvider } from "./core/providers.js";
+import { loadEnv } from "./core/loadEnv.js";
+
+loadEnv(); // подхватить .copilot.env из текущей папки до чтения настроек
 
 const args = process.argv.slice(2);
 let promptFlag = null;
