@@ -2,6 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { scanValue } from "../src/core/scanner.js";
 
+// Детерминированное «сейчас» — за 6ч до начала матча в SAMPLE, чтобы событие
+// всегда было в окне независимо от реальной даты запуска тестов.
+const NOW = Date.parse("2026-07-11T12:00:00Z");
+
 // Три БК; book3 щедро оценивает исход A → лучший коэф. A выгоднее консенсуса.
 const SAMPLE = [{
   id: "v1", sport_key: "soccer", commence_time: "2026-07-11T18:00:00Z",
@@ -19,7 +23,7 @@ const SAMPLE = [{
 test("scanValue: находит value (лучший коэф. выгоднее консенсуса рынка)", async () => {
   const r = await scanValue({
     sport: "soccer", markets: ["h2h"], minEdgePct: 2,
-    enrichAi: false, maxHours: 0, fetchOddsFn: async () => SAMPLE
+    enrichAi: false, maxHours: 0, nowMs: NOW, fetchOddsFn: async () => SAMPLE
   });
   assert.equal(r.scanned, 1);
   assert.ok(r.found >= 1);
@@ -32,7 +36,7 @@ test("scanValue: находит value (лучший коэф. выгоднее �
 test("scanValue: высокий порог отсекает всё", async () => {
   const r = await scanValue({
     sport: "soccer", markets: ["h2h"], minEdgePct: 99, minEdgeSoftPct: 99,
-    enrichAi: false, maxHours: 0, fetchOddsFn: async () => SAMPLE
+    enrichAi: false, maxHours: 0, nowMs: NOW, fetchOddsFn: async () => SAMPLE
   });
   assert.equal(r.found, 0);
 });
@@ -40,7 +44,7 @@ test("scanValue: высокий порог отсекает всё", async () =>
 test("scanValue: сортировка по убыванию перевеса", async () => {
   const r = await scanValue({
     sport: "soccer", markets: ["h2h"], minEdgePct: 0, minEdgeSoftPct: 0,
-    enrichAi: false, maxHours: 0, fetchOddsFn: async () => SAMPLE
+    enrichAi: false, maxHours: 0, nowMs: NOW, fetchOddsFn: async () => SAMPLE
   });
   for (let i = 1; i < r.values.length; i++) {
     assert.ok(r.values[i - 1].valueBet.edgePct >= r.values[i].valueBet.edgePct);
@@ -61,10 +65,10 @@ test("scanValue: minProb режет лонгшоты (низкая вероят�
   }];
   // Без minProb — может флагнуть лонгшот Dog @ 11.
   const loose = await scanValue({ sport: "s", markets: ["h2h"], minEdgePct: 1, minEdgeSoftPct: 1,
-    minProb: 0, maxHours: 0, fetchOddsFn: async () => S });
+    minProb: 0, maxHours: 0, nowMs: NOW, fetchOddsFn: async () => S });
   // С minProb 0.4 — лонгшот (шанс ~10%) отсекается; останется только исход с шансом ≥40% или ничего.
   const strict = await scanValue({ sport: "s", markets: ["h2h"], minEdgePct: 1, minEdgeSoftPct: 1,
-    minProb: 0.4, maxHours: 0, fetchOddsFn: async () => S });
+    minProb: 0.4, maxHours: 0, nowMs: NOW, fetchOddsFn: async () => S });
   for (const v of strict.values) {
     assert.ok(v.valueBet.modelProb >= 40, `лонгшот не должен пройти: ${v.valueBet.name} ${v.valueBet.modelProb}%`);
   }
