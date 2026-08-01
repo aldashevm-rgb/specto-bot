@@ -8,7 +8,9 @@
   "scripts": {
     "start": "node index.js",
     "test": "node --test",
-    "qualify": "node scripts/qualify.js"
+    "qualify": "node scripts/qualify.js",
+    "copilot": "node copilot/cli.js",
+    "copilot:web": "node copilot/server.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
