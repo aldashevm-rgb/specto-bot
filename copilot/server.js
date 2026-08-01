@@ -13,7 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
 import { runAgent } from "./core/agent.js";
-import { MODEL } from "./core/client.js";
+import { mainProvider, strongProvider } from "./core/providers.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(process.env.COPILOT_ROOT || process.cwd());
@@ -47,7 +47,13 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "GET" && url.pathname === "/api/info") {
     res.writeHead(200, { "content-type": "application/json" });
-    return res.end(JSON.stringify({ model: MODEL, root: ROOT }));
+    return res.end(
+      JSON.stringify({
+        main: mainProvider().label,
+        strong: strongProvider().label,
+        root: ROOT,
+      })
+    );
   }
 
   if (req.method === "POST" && url.pathname === "/api/reset") {
@@ -58,7 +64,8 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "POST" && url.pathname === "/api/chat") {
-    const { sessionId: sid, message } = await readBody(req);
+    const { sessionId: sid, message, strong } = await readBody(req);
+    const provider = strong ? strongProvider() : mainProvider();
     const sessionId = sid || crypto.randomUUID();
     if (!message) {
       res.writeHead(400);
@@ -78,7 +85,7 @@ const server = http.createServer(async (req, res) => {
     history.push({ role: "user", content: message });
 
     try {
-      await runAgent({ history, root: ROOT, onEvent: send });
+      await runAgent({ history, root: ROOT, provider, onEvent: send });
     } catch (e) {
       send({ type: "error", message: e.message });
     }

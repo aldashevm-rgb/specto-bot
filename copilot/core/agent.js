@@ -1,7 +1,7 @@
 // Агентный цикл кодинг-ассистента. Модель думает, вызывает инструменты,
 // видит результаты и продолжает, пока не завершит ход (end_turn).
 
-import { streamMessage } from "./client.js";
+import { streamTurn, mainProvider } from "./providers.js";
 import { TOOL_DEFS, runTool } from "./tools.js";
 
 export const SYSTEM_PROMPT = `Ты — кодинг-ассистент (аналог Copilot/Codex), работающий прямо в репозитории пользователя.
@@ -19,8 +19,9 @@ export const SYSTEM_PROMPT = `Ты — кодинг-ассистент (анал
 // history — массив сообщений [{role, content}] (мутируется: дописываются ходы).
 // onEvent получает события из client + {type:'tool_result', name, ok, preview}
 //   и {type:'turn_end'} по завершении.
-export async function runAgent({ history, root, maxSteps = 40, onEvent = () => {} }) {
+export async function runAgent({ history, root, provider, maxSteps = 40, onEvent = () => {} }) {
   const ctx = { root };
+  const cfg = provider || mainProvider();
   let steps = 0;
 
   for (;;) {
@@ -29,7 +30,8 @@ export async function runAgent({ history, root, maxSteps = 40, onEvent = () => {
       break;
     }
 
-    const res = await streamMessage(
+    const res = await streamTurn(
+      cfg,
       {
         system: SYSTEM_PROMPT,
         messages: history,
