@@ -36,6 +36,11 @@ const ICON = {
   list_files: "📂",
   search: "🔎",
   run_bash: "⚙️ ",
+  remember: "🧠",
+  forget: "🗑️ ",
+  generate_image: "🎨",
+  web_search: "🌐",
+  fetch_url: "🔗",
 };
 
 function makeHandler() {
