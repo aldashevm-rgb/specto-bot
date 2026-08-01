@@ -14,6 +14,9 @@ import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
 import { runAgent } from "./core/agent.js";
 import { mainProvider, strongProvider } from "./core/providers.js";
+import { loadEnv } from "./core/loadEnv.js";
+
+loadEnv(); // подхватить .copilot.env из текущей папки до чтения настроек
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(process.env.COPILOT_ROOT || process.cwd());
