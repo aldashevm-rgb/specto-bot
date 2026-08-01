@@ -100,7 +100,7 @@ function addUser(text) {
   scroll();
 }
 
-const ICON = { read_file:"📖", write_file:"✍️", edit_file:"✏️", list_files:"📂", search:"🔎", run_bash:"⚙️" };
+const ICON = { read_file:"📖", write_file:"✍️", edit_file:"✏️", list_files:"📂", search:"🔎", run_bash:"⚙️", remember:"🧠", forget:"🗑️", generate_image:"🎨" };
 
 input.addEventListener("input", () => {
   input.style.height = "auto";
@@ -167,6 +167,14 @@ async function send() {
         `<span class="name">${evt.name}</span>` +
         `<span class="arg">${escapeHtml(String(arg))}</span>` +
         `<span class="${evt.ok?'ok':'fail'}">${evt.ok?'✓':'✗'}</span>`;
+      // Сгенерированную картинку показываем прямо в чате.
+      if (evt.name === "generate_image" && evt.ok) {
+        const rel = String(evt.preview||"").match(/generated\/[^\s]+\.(?:jpg|jpeg|png|webp)/i);
+        if (rel) {
+          const wrap = el("", m);
+          wrap.innerHTML = `<img src="/${rel[0]}" style="max-width:100%;border-radius:10px;margin:8px 0;border:1px solid var(--border)">`;
+        }
+      }
       scroll();
     } else if (evt.type === "error") {
       el("bubble", m).textContent = "⚠️ " + evt.message;

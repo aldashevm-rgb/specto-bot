@@ -45,6 +45,22 @@ const server = http.createServer(async (req, res) => {
     return res.end(html);
   }
 
+  // Раздача сгенерированных картинок из <root>/generated/.
+  if (req.method === "GET" && url.pathname.startsWith("/generated/")) {
+    const name = path.basename(decodeURIComponent(url.pathname.slice("/generated/".length)));
+    const file = path.join(ROOT, "generated", name);
+    try {
+      const data = fs.readFileSync(file);
+      const ext = path.extname(name).toLowerCase();
+      const type = ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : "image/jpeg";
+      res.writeHead(200, { "content-type": type, "cache-control": "no-cache" });
+      return res.end(data);
+    } catch {
+      res.writeHead(404);
+      return res.end("not found");
+    }
+  }
+
   if (req.method === "GET" && url.pathname === "/api/info") {
     res.writeHead(200, { "content-type": "application/json" });
     return res.end(
