@@ -6,7 +6,7 @@
 import readline from "node:readline";
 import path from "node:path";
 import { runAgent } from "./core/agent.js";
-import { mainProvider, strongProvider } from "./core/providers.js";
+import { mainProvider, strongProvider, providerHasKey } from "./core/providers.js";
 import { loadEnv } from "./core/loadEnv.js";
 
 loadEnv(); // подхватить .copilot.env из текущей папки до чтения настроек
@@ -83,10 +83,10 @@ function makeHandler() {
   };
 }
 
-async function ask(history, text, provider) {
+async function ask(history, text, provider, escalateTo) {
   history.push({ role: "user", content: text });
   try {
-    await runAgent({ history, root, provider, onEvent: makeHandler() });
+    await runAgent({ history, root, provider, escalateTo, onEvent: makeHandler() });
   } catch (e) {
     process.stdout.write(C.red("\nОшибка: " + e.message + "\n"));
   }
@@ -96,9 +96,14 @@ async function main() {
   const history = [];
   const main = mainProvider();
   const strong = strongProvider();
+  // Авто-эскалация: если у сильной модели есть ключ и она отличается от основной.
+  const auto =
+    providerHasKey(strong) && (strong.kind !== main.kind || strong.model !== main.model)
+      ? strong
+      : null;
 
   if (promptFlag) {
-    await ask(history, promptFlag, main);
+    await ask(history, promptFlag, main, auto);
     return;
   }
 
@@ -106,7 +111,7 @@ async function main() {
   console.log(C.dim(`  Рабочая область: ${root}`));
   console.log(
     C.dim(
-      `  Команды: /hard <запрос> — умнее (${strong.label}), /reset — сброс, /exit — выход.\n`
+      `  ${auto ? `Авто-режим: сложное → ${auto.label}. ` : ""}Команды: /hard <запрос> — сразу умнее (${strong.label}), /reset — сброс, /exit — выход.\n`
     )
   );
 
@@ -126,11 +131,13 @@ async function main() {
       console.log(C.dim("  История сброшена.\n"));
       return rl.prompt();
     }
-    // /hard <запрос> — разово выполнить через сильный провайдер (Claude).
+    // /hard <запрос> — сразу через сильную модель (без авто).
     let provider = main;
+    let escalateTo = auto;
     let text = input;
     if (input.startsWith("/hard")) {
       provider = strong;
+      escalateTo = null;
       text = input.slice(5).trim();
       if (!text) {
         console.log(C.dim("  Использование: /hard <запрос>\n"));
@@ -139,7 +146,7 @@ async function main() {
       console.log(C.yellow(`  → ${strong.label}`));
     }
     rl.pause();
-    await ask(history, text, provider);
+    await ask(history, text, provider, escalateTo);
     console.log();
     rl.resume();
     rl.prompt();
