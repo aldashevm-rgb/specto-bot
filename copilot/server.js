@@ -99,5 +99,5 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Copilot веб-панель:  http://localhost:${PORT}`);
-  console.log(`Модель: ${MODEL}   Рабочая область: ${ROOT}`);
+  console.log(`Модель: ${mainProvider().label}   Рабочая область: ${ROOT}`);
 });
