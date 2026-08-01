@@ -3,9 +3,9 @@ export function Logo({ className = "h-8 w-8" }) {
     <svg viewBox="0 0 40 40" className={className} aria-hidden="true">
       <defs>
         <linearGradient id="lg" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#4F7CFF" />
-          <stop offset="0.5" stopColor="#6D6BFF" />
-          <stop offset="1" stopColor="#A855F7" />
+          <stop stopColor="#7EE9B8" />
+          <stop offset="0.55" stopColor="#3ECF8E" />
+          <stop offset="1" stopColor="#1F8F5F" />
         </linearGradient>
       </defs>
       <rect x="1.5" y="1.5" width="37" height="37" rx="11" fill="url(#lg)" opacity="0.16" />

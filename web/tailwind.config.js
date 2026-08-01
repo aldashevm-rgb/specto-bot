@@ -8,12 +8,20 @@ export default {
     extend: {
       colors: {
         ink: {
-          950: "#08080A",
-          900: "#0A0A0B",
-          850: "#0E0E11",
-          800: "#131317",
-          700: "#1B1B21",
-          600: "#26262E",
+          950: "#070707",
+          900: "#0A0A0A",
+          850: "#0F0F0F",
+          800: "#141414",
+          700: "#1C1C1C",
+          600: "#262626",
+        },
+        signal: {
+          50: "#E9FBF2",
+          300: "#7EE9B8",
+          400: "#4EE39F",
+          500: "#3ECF8E",
+          600: "#2FB77B",
+          700: "#1F8F5F",
         },
         accent: {
           blue: "#4F7CFF",
@@ -28,7 +36,7 @@ export default {
         mono: ["var(--font-mono)", "ui-monospace", "monospace"],
       },
       maxWidth: {
-        container: "1200px",
+        container: "1220px",
       },
       keyframes: {
         "gradient-pan": {
@@ -39,20 +47,35 @@ export default {
           "0%, 100%": { transform: "translateY(0)" },
           "50%": { transform: "translateY(-10px)" },
         },
+        "float-slow": {
+          "0%, 100%": { transform: "translateY(0)" },
+          "50%": { transform: "translateY(-16px)" },
+        },
         "pulse-glow": {
-          "0%, 100%": { opacity: "0.35" },
-          "50%": { opacity: "0.7" },
+          "0%, 100%": { opacity: "0.3" },
+          "50%": { opacity: "0.6" },
+        },
+        aurora: {
+          "0%": { transform: "translate(-10%, -10%) rotate(0deg)" },
+          "50%": { transform: "translate(10%, 8%) rotate(180deg)" },
+          "100%": { transform: "translate(-10%, -10%) rotate(360deg)" },
         },
         marquee: {
           "0%": { transform: "translateX(0)" },
           "100%": { transform: "translateX(-50%)" },
         },
+        "ticker-up": {
+          "0%": { transform: "translateY(0)" },
+          "100%": { transform: "translateY(-100%)" },
+        },
       },
       animation: {
         "gradient-pan": "gradient-pan 8s ease infinite",
         float: "float 6s ease-in-out infinite",
+        "float-slow": "float-slow 9s ease-in-out infinite",
         "pulse-glow": "pulse-glow 5s ease-in-out infinite",
-        marquee: "marquee 32s linear infinite",
+        aurora: "aurora 24s linear infinite",
+        marquee: "marquee 34s linear infinite",
       },
     },
   },

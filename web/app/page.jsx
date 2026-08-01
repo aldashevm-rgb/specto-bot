@@ -2,70 +2,21 @@ import Link from "next/link";
 import SiteNav from "@/components/site-nav";
 import SiteFooter from "@/components/site-footer";
 import Reveal from "@/components/reveal";
-import ChatMock from "@/components/chat-mock";
+import DashboardMock from "@/components/dashboard-mock";
 import { Icon } from "@/components/icons";
 
-const features = [
-  {
-    icon: "chat",
-    title: "Диалог голосом менеджера",
-    text: "«Алина» на базе Claude общается с лидами естественно, по вашему скрипту продаж — клиент не отличит от живого менеджера.",
-  },
-  {
-    icon: "filter",
-    title: "ИИ-квалификация лидов",
-    text: "Каждая переписка оценивается автоматически: горячий, тёплый или холодный. Менеджеры видят только тех, кто готов покупать.",
-  },
-  {
-    icon: "clock",
-    title: "Догоняющие сообщения",
-    text: "Клиент замолчал? SPECTO сам вернёт его цепочкой напоминаний по таймингу. Ответил — цепочка останавливается.",
-  },
-  {
-    icon: "users",
-    title: "Авто-назначение менеджеров",
-    text: "Горячие лиды мгновенно уходят наименее загруженному менеджеру. Ни одна заявка не зависает без ответственного.",
-  },
-  {
-    icon: "shield",
-    title: "Агент-сторож",
-    text: "Фоновый ИИ следит за здоровьем воронки, чинит пропуски, переоценивает устаревшие оценки и алертит о застрявших горячих.",
-  },
-  {
-    icon: "chart",
-    title: "Дашборд и сводки",
-    text: "Живой дашборд горячих лидов и ежедневная сводка по продажам — вся картина по воронке в одном месте.",
-  },
-];
-
 const steps = [
-  {
-    n: "01",
-    title: "Подключаем WhatsApp",
-    text: "Интеграция с WhatsApp Cloud API за час. Ваш номер, ваш скрипт — настраиваем под ваш бизнес.",
-  },
-  {
-    n: "02",
-    title: "Обучаем «Алину»",
-    text: "Загружаем прайс, услуги и тон общения. ИИ отвечает так, как отвечал бы ваш лучший менеджер.",
-  },
-  {
-    n: "03",
-    title: "Ловим и квалифицируем",
-    text: "Каждый входящий получает ответ за секунды, ИИ квалифицирует и ведёт лида до передачи менеджеру.",
-  },
-  {
-    n: "04",
-    title: "Закрываете горячих",
-    text: "Менеджеры работают только с готовыми к покупке. Дашборд и сводки держат воронку под контролем.",
-  },
+  { n: "01", title: "Подключаем WhatsApp", text: "Интеграция с WhatsApp Cloud API за час. Ваш номер, ваш скрипт." },
+  { n: "02", title: "Обучаем «Алину»", text: "Загружаем прайс, услуги и тон общения — ИИ отвечает как ваш лучший менеджер." },
+  { n: "03", title: "Ловим и квалифицируем", text: "Каждый входящий получает ответ за секунды, ИИ квалифицирует и ведёт лида." },
+  { n: "04", title: "Закрываете горячих", text: "Менеджеры работают только с готовыми к покупке. Дашборд под контролем." },
 ];
 
 const stats = [
-  { value: "<5 сек", label: "Средняя скорость ответа лиду" },
-  { value: "24/7", label: "Работает без выходных и обедов" },
+  { value: "<5 сек", label: "Средняя скорость ответа" },
+  { value: "24/7", label: "Без выходных и обедов" },
   { value: "×3", label: "Больше доведённых до менеджера" },
-  { value: "0", label: "Упущенных горячих лидов ночью" },
+  { value: "0", label: "Упущенных горячих ночью" },
 ];
 
 const plans = [
@@ -73,7 +24,7 @@ const plans = [
     name: "Start",
     price: "9 900 ₽",
     period: "/мес",
-    desc: "Для небольших команд, которые запускают продажи в WhatsApp.",
+    desc: "Для небольших команд, запускающих продажи в WhatsApp.",
     features: ["До 300 лидов/мес", "ИИ-ответы «Алина»", "Квалификация лидов", "Дашборд горячих"],
     cta: "Начать",
     highlight: false,
@@ -83,13 +34,7 @@ const plans = [
     price: "24 900 ₽",
     period: "/мес",
     desc: "Для растущих отделов продаж с потоком заявок.",
-    features: [
-      "До 1500 лидов/мес",
-      "Всё из Start",
-      "Догоняющие сообщения",
-      "Авто-назначение менеджеров",
-      "Ежедневные сводки",
-    ],
+    features: ["До 1500 лидов/мес", "Всё из Start", "Догоняющие сообщения", "Авто-назначение", "Ежедневные сводки"],
     cta: "Запросить демо",
     highlight: true,
   },
@@ -98,13 +43,7 @@ const plans = [
     price: "Индивид.",
     period: "",
     desc: "Для крупных компаний с несколькими филиалами.",
-    features: [
-      "Безлимит лидов",
-      "Всё из Business",
-      "Мультитенантность",
-      "Агент-сторож 24/7",
-      "Приоритетная поддержка",
-    ],
+    features: ["Безлимит лидов", "Всё из Business", "Мультитенантность", "Агент-сторож 24/7", "Приоритетная поддержка"],
     cta: "Связаться",
     highlight: false,
   },
@@ -117,30 +56,33 @@ export default function HomePage() {
       <main className="overflow-clip pt-16">
         {/* ================= HERO ================= */}
         <section className="relative">
-          <div className="pointer-events-none absolute inset-0 -z-10 grid-dots [mask-image:radial-gradient(70%_60%_at_50%_0%,black,transparent)]" />
-          <div className="pointer-events-none absolute -top-40 left-1/2 -z-10 h-[38rem] w-[38rem] -translate-x-1/2 rounded-full bg-accent-indigo/20 blur-[120px]" />
+          <div className="pointer-events-none absolute inset-0 -z-10 grid-lines [mask-image:radial-gradient(75%_55%_at_50%_0%,black,transparent)]" />
+          <div className="pointer-events-none absolute -top-52 left-[8%] -z-10 h-[34rem] w-[34rem] rounded-full bg-signal-500/12 blur-[130px] animate-aurora" />
 
-          <div className="container-x grid items-center gap-14 py-20 lg:grid-cols-[1.05fr_0.95fr] lg:py-28">
+          <div className="container-x grid items-center gap-16 py-20 lg:grid-cols-[1fr_1fr] lg:py-28">
             <div>
               <Reveal>
-                <span className="eyebrow">
-                  <span className="h-1.5 w-1.5 rounded-full bg-accent-indigo" />
-                  ИИ-менеджер продаж в WhatsApp
+                <span className="kicker">
+                  <span className="h-1.5 w-1.5 rounded-full bg-signal-500" />
+                  ИИ-менеджер продаж · WhatsApp
                 </span>
               </Reveal>
 
               <Reveal delay={80}>
-                <h1 className="mt-6 font-display text-4xl font-bold leading-[1.05] tracking-tight text-white sm:text-5xl lg:text-6xl">
-                  Ни один горячий лид{" "}
-                  <span className="text-gradient-animated">больше не сгорит</span>
+                <h1 className="mt-6 font-display text-5xl font-bold leading-[0.98] tracking-tight text-white sm:text-6xl lg:text-[4.5rem]">
+                  Отвечает первым.
+                  <br />
+                  <span className="text-signal">Продаёт лучше.</span>
+                  <br />
+                  Не спит.
                 </h1>
               </Reveal>
 
               <Reveal delay={140}>
-                <p className="mt-6 max-w-xl text-lg leading-relaxed text-zinc-400">
-                  SPECTO — это «Алина», ИИ-менеджер, который отвечает клиентам в
-                  WhatsApp за секунды, квалифицирует их и сам ведёт догоняющие.
-                  Ваши менеджеры работают только с теми, кто готов купить.
+                <p className="mt-7 max-w-lg text-lg leading-relaxed text-zinc-400">
+                  «Алина» отвечает клиентам в WhatsApp за секунды, квалифицирует
+                  их и ведёт догоняющие. Ваши менеджеры работают только с теми,
+                  кто готов купить — а не с теми, кто «просто спросить».
                 </p>
               </Reveal>
 
@@ -157,107 +99,199 @@ export default function HomePage() {
               </Reveal>
 
               <Reveal delay={260}>
-                <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-zinc-500">
-                  <span className="inline-flex items-center gap-2">
-                    <Icon name="check" className="h-4 w-4 text-accent-indigo" />
-                    Запуск за 1 день
-                  </span>
-                  <span className="inline-flex items-center gap-2">
-                    <Icon name="check" className="h-4 w-4 text-accent-indigo" />
-                    Без кода
-                  </span>
-                  <span className="inline-flex items-center gap-2">
-                    <Icon name="check" className="h-4 w-4 text-accent-indigo" />
-                    Интеграция с вашей CRM
-                  </span>
+                <div className="mt-9 flex items-center gap-6 border-t border-white/[0.06] pt-6">
+                  <div>
+                    <p className="font-display text-2xl font-bold text-white">1 день</p>
+                    <p className="text-xs text-zinc-500">до запуска</p>
+                  </div>
+                  <div className="h-8 w-px bg-white/10" />
+                  <div>
+                    <p className="font-display text-2xl font-bold text-white">2.1 сек</p>
+                    <p className="text-xs text-zinc-500">средний ответ</p>
+                  </div>
+                  <div className="h-8 w-px bg-white/10" />
+                  <div>
+                    <p className="font-display text-2xl font-bold text-white">×3</p>
+                    <p className="text-xs text-zinc-500">конверсия в встречу</p>
+                  </div>
                 </div>
               </Reveal>
             </div>
 
-            <Reveal delay={200} className="flex justify-center lg:justify-end">
-              <div className="animate-float">
-                <ChatMock />
-              </div>
+            <Reveal delay={220} className="flex justify-center lg:justify-end">
+              <DashboardMock />
             </Reveal>
           </div>
         </section>
 
         {/* ================= TRUST STRIP ================= */}
-        <section className="border-y border-white/[0.06] bg-white/[0.015]">
-          <div className="container-x py-6">
-            <p className="text-center text-xs uppercase tracking-[0.2em] text-zinc-600">
-              Работает на технологиях, которым доверяют
+        <section className="border-y border-white/[0.06] bg-white/[0.012]">
+          <div className="container-x flex flex-col items-center gap-4 py-6 sm:flex-row sm:justify-between">
+            <p className="font-mono text-xs uppercase tracking-[0.2em] text-zinc-600">
+              Работает на
             </p>
-            <div className="mt-5 flex flex-wrap items-center justify-center gap-x-10 gap-y-4 font-display text-sm font-semibold text-zinc-500">
+            <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-3 font-display text-sm font-semibold text-zinc-500">
               <span>Claude AI</span>
-              <span className="text-zinc-700">•</span>
+              <span className="text-zinc-700">/</span>
               <span>WhatsApp Cloud API</span>
-              <span className="text-zinc-700">•</span>
+              <span className="text-zinc-700">/</span>
               <span>Supabase</span>
-              <span className="text-zinc-700">•</span>
-              <span>Meta HMAC-подпись</span>
+              <span className="text-zinc-700">/</span>
+              <span>Meta HMAC</span>
             </div>
           </div>
         </section>
 
-        {/* ================= FEATURES ================= */}
+        {/* ================= BENTO FEATURES ================= */}
         <section id="features" className="relative py-24">
           <div className="container-x">
-            <Reveal className="mx-auto max-w-2xl text-center">
-              <span className="eyebrow">Возможности</span>
-              <h2 className="mt-5 font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
-                Целый отдел продаж внутри WhatsApp
+            <Reveal className="max-w-2xl">
+              <span className="kicker">Возможности</span>
+              <h2 className="mt-4 font-display text-4xl font-bold tracking-tight text-white sm:text-5xl">
+                Целый отдел продаж
+                <br />
+                внутри одного чата
               </h2>
-              <p className="mt-4 text-lg text-zinc-400">
-                SPECTO закрывает всю рутину — от первого «Здравствуйте» до передачи
-                горячего лида менеджеру.
-              </p>
             </Reveal>
 
-            <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              {features.map((f, i) => (
-                <Reveal key={f.title} delay={i * 60}>
-                  <article className="card group h-full p-6">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 bg-gradient-to-br from-accent-blue/15 to-accent-violet/15 text-accent-indigo transition-colors group-hover:text-white">
-                      <Icon name={f.icon} className="h-6 w-6" />
+            <div className="mt-14 grid auto-rows-[minmax(0,1fr)] gap-4 md:grid-cols-6">
+              {/* Big card */}
+              <Reveal className="md:col-span-4">
+                <article className="card group h-full overflow-hidden p-8">
+                  <div className="flex items-start justify-between">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-signal-500/20 bg-signal-500/10 text-signal-400">
+                      <Icon name="chat" className="h-6 w-6" />
+                    </div>
+                    <span className="chip">Claude Sonnet</span>
+                  </div>
+                  <h3 className="mt-6 font-display text-2xl font-semibold text-white">
+                    Диалог голосом вашего менеджера
+                  </h3>
+                  <p className="mt-3 max-w-lg text-base leading-relaxed text-zinc-400">
+                    «Алина» ведёт живой разговор по вашему скрипту: отвечает на
+                    вопросы, снимает возражения, доводит до целевого действия.
+                    Клиент не отличит от живого человека — только без задержек и
+                    в любое время суток.
+                  </p>
+                  <div className="mt-6 flex flex-wrap gap-2">
+                    <span className="chip">Естественный язык</span>
+                    <span className="chip">Ваш скрипт продаж</span>
+                    <span className="chip">Память диалога</span>
+                  </div>
+                </article>
+              </Reveal>
+
+              {/* Qualification */}
+              <Reveal delay={60} className="md:col-span-2">
+                <article className="card group h-full p-7">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-signal-500/20 bg-signal-500/10 text-signal-400">
+                    <Icon name="filter" className="h-5 w-5" />
+                  </div>
+                  <h3 className="mt-5 font-display text-lg font-semibold text-white">
+                    ИИ-квалификация
+                  </h3>
+                  <p className="mt-2.5 text-sm leading-relaxed text-zinc-400">
+                    Горячий, тёплый или холодный — оценка каждой переписки
+                    автоматически, с обоснованием.
+                  </p>
+                </article>
+              </Reveal>
+
+              {/* Follow-ups */}
+              <Reveal delay={80} className="md:col-span-2">
+                <article className="card group h-full p-7">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-signal-500/20 bg-signal-500/10 text-signal-400">
+                    <Icon name="clock" className="h-5 w-5" />
+                  </div>
+                  <h3 className="mt-5 font-display text-lg font-semibold text-white">
+                    Догоняющие
+                  </h3>
+                  <p className="mt-2.5 text-sm leading-relaxed text-zinc-400">
+                    Клиент замолчал — SPECTO вернёт его цепочкой. Ответил —
+                    цепочка останавливается.
+                  </p>
+                </article>
+              </Reveal>
+
+              {/* Auto-assign */}
+              <Reveal delay={100} className="md:col-span-2">
+                <article className="card group h-full p-7">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-signal-500/20 bg-signal-500/10 text-signal-400">
+                    <Icon name="users" className="h-5 w-5" />
+                  </div>
+                  <h3 className="mt-5 font-display text-lg font-semibold text-white">
+                    Авто-назначение
+                  </h3>
+                  <p className="mt-2.5 text-sm leading-relaxed text-zinc-400">
+                    Горячий лид мгновенно уходит наименее загруженному менеджеру.
+                  </p>
+                </article>
+              </Reveal>
+
+              {/* Watchdog + analytics wide */}
+              <Reveal delay={120} className="md:col-span-2">
+                <article className="card group h-full p-7">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-signal-500/20 bg-signal-500/10 text-signal-400">
+                    <Icon name="shield" className="h-5 w-5" />
+                  </div>
+                  <h3 className="mt-5 font-display text-lg font-semibold text-white">
+                    Агент-сторож
+                  </h3>
+                  <p className="mt-2.5 text-sm leading-relaxed text-zinc-400">
+                    Фоновый ИИ чинит пропуски и алертит о застрявших горячих.
+                  </p>
+                </article>
+              </Reveal>
+
+              <Reveal delay={140} className="md:col-span-4">
+                <article className="card group flex h-full flex-col justify-between gap-5 p-7 sm:flex-row sm:items-center">
+                  <div>
+                    <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-signal-500/20 bg-signal-500/10 text-signal-400">
+                      <Icon name="chart" className="h-5 w-5" />
                     </div>
                     <h3 className="mt-5 font-display text-lg font-semibold text-white">
-                      {f.title}
+                      Дашборд и ежедневные сводки
                     </h3>
-                    <p className="mt-2.5 text-sm leading-relaxed text-zinc-400">
-                      {f.text}
+                    <p className="mt-2.5 max-w-md text-sm leading-relaxed text-zinc-400">
+                      Живая картина воронки и отчёт каждое утро — без ручной
+                      работы менеджеров.
                     </p>
-                  </article>
-                </Reveal>
-              ))}
+                  </div>
+                  <div className="flex shrink-0 gap-6 border-l border-white/10 pl-6">
+                    <div>
+                      <p className="font-display text-3xl font-bold text-signal-400">100%</p>
+                      <p className="text-xs text-zinc-500">лидов в базе</p>
+                    </div>
+                    <div>
+                      <p className="font-display text-3xl font-bold text-white">API</p>
+                      <p className="text-xs text-zinc-500">экспорт</p>
+                    </div>
+                  </div>
+                </article>
+              </Reveal>
             </div>
           </div>
         </section>
 
         {/* ================= HOW IT WORKS ================= */}
         <section id="how" className="relative py-24">
-          <div className="pointer-events-none absolute left-1/2 top-0 -z-10 h-96 w-[46rem] -translate-x-1/2 rounded-full bg-accent-violet/10 blur-[120px]" />
           <div className="container-x">
-            <Reveal className="mx-auto max-w-2xl text-center">
-              <span className="eyebrow">Как работает</span>
-              <h2 className="mt-5 font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
+            <Reveal className="max-w-2xl">
+              <span className="kicker">Как работает</span>
+              <h2 className="mt-4 font-display text-4xl font-bold tracking-tight text-white sm:text-5xl">
                 От заявки до сделки — за 4 шага
               </h2>
             </Reveal>
 
-            <div className="mt-14 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-14 grid gap-px overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.05] md:grid-cols-4">
               {steps.map((s, i) => (
                 <Reveal key={s.n} delay={i * 70}>
-                  <div className="card h-full p-6">
-                    <span className="font-mono text-sm font-medium text-accent-indigo">
-                      {s.n}
-                    </span>
+                  <div className="group h-full bg-ink-900 p-7 transition-colors hover:bg-ink-850">
+                    <span className="font-mono text-sm font-medium text-signal-500">{s.n}</span>
                     <h3 className="mt-4 font-display text-lg font-semibold text-white">
                       {s.title}
                     </h3>
-                    <p className="mt-2.5 text-sm leading-relaxed text-zinc-400">
-                      {s.text}
-                    </p>
+                    <p className="mt-2.5 text-sm leading-relaxed text-zinc-400">{s.text}</p>
                   </div>
                 </Reveal>
               ))}
@@ -266,13 +300,13 @@ export default function HomePage() {
         </section>
 
         {/* ================= STATS ================= */}
-        <section className="py-12">
+        <section className="py-8">
           <div className="container-x">
             <Reveal>
-              <div className="card grid gap-8 rounded-3xl p-10 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-8 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-10 sm:grid-cols-2 lg:grid-cols-4">
                 {stats.map((s) => (
                   <div key={s.label} className="text-center">
-                    <p className="font-display text-4xl font-bold text-gradient">
+                    <p className="font-display text-4xl font-bold text-signal-400 sm:text-5xl">
                       {s.value}
                     </p>
                     <p className="mt-2 text-sm text-zinc-400">{s.label}</p>
@@ -286,45 +320,41 @@ export default function HomePage() {
         {/* ================= PRICING ================= */}
         <section id="pricing" className="relative py-24">
           <div className="container-x">
-            <Reveal className="mx-auto max-w-2xl text-center">
-              <span className="eyebrow">Тарифы</span>
-              <h2 className="mt-5 font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
-                Простые тарифы под ваш поток лидов
+            <Reveal className="max-w-2xl">
+              <span className="kicker">Тарифы</span>
+              <h2 className="mt-4 font-display text-4xl font-bold tracking-tight text-white sm:text-5xl">
+                Платите за результат
               </h2>
               <p className="mt-4 text-lg text-zinc-400">
-                Платите за результат, а не за место. Первые 14 дней — бесплатно.
+                Первые 14 дней — бесплатно, без карты.
               </p>
             </Reveal>
 
-            <div className="mt-14 grid items-stretch gap-6 lg:grid-cols-3">
+            <div className="mt-14 grid items-stretch gap-5 lg:grid-cols-3">
               {plans.map((p, i) => (
                 <Reveal key={p.name} delay={i * 70} className="h-full">
                   <div
                     className={`relative flex h-full flex-col rounded-2xl border p-7 transition-all duration-300 ${
                       p.highlight
-                        ? "border-accent-indigo/40 bg-gradient-to-b from-accent-indigo/[0.12] to-transparent glow-violet"
-                        : "border-white/[0.08] bg-white/[0.02] hover:border-white/[0.16]"
+                        ? "border-signal-500/40 bg-signal-500/[0.06] glow-signal"
+                        : "border-white/[0.07] bg-white/[0.02] hover:border-white/[0.16]"
                     }`}
                   >
                     {p.highlight && (
-                      <span className="absolute -top-3 left-7 rounded-full bg-gradient-to-r from-accent-blue to-accent-violet px-3 py-1 text-xs font-semibold text-white">
+                      <span className="absolute -top-3 left-7 rounded-full bg-signal-500 px-3 py-1 text-xs font-bold text-ink-950">
                         Популярный
                       </span>
                     )}
-                    <h3 className="font-display text-xl font-semibold text-white">
-                      {p.name}
-                    </h3>
+                    <h3 className="font-display text-xl font-semibold text-white">{p.name}</h3>
                     <p className="mt-2 text-sm text-zinc-400">{p.desc}</p>
                     <div className="mt-6 flex items-end gap-1">
-                      <span className="font-display text-4xl font-bold text-white">
-                        {p.price}
-                      </span>
+                      <span className="font-display text-4xl font-bold text-white">{p.price}</span>
                       <span className="pb-1 text-sm text-zinc-500">{p.period}</span>
                     </div>
                     <ul className="mt-6 space-y-3">
                       {p.features.map((f) => (
                         <li key={f} className="flex items-start gap-2.5 text-sm text-zinc-300">
-                          <Icon name="check" className="mt-0.5 h-4 w-4 shrink-0 text-accent-indigo" />
+                          <Icon name="check" className="mt-0.5 h-4 w-4 shrink-0 text-signal-500" />
                           {f}
                         </li>
                       ))}
@@ -346,12 +376,12 @@ export default function HomePage() {
         <section className="py-16">
           <div className="container-x">
             <Reveal>
-              <figure className="card mx-auto max-w-3xl rounded-3xl p-10 text-center">
-                <Icon name="sparkle" className="mx-auto h-7 w-7 text-accent-indigo" />
-                <blockquote className="mt-5 font-display text-xl font-medium leading-relaxed text-zinc-100 sm:text-2xl">
-                  «Раньше мы теряли половину заявок из WhatsApp по ночам и в
-                  выходные. С SPECTO лиды получают ответ мгновенно, а менеджеры
-                  утром видят только горячих. Конверсия в встречу выросла втрое.»
+              <figure className="mx-auto max-w-3xl text-center">
+                <blockquote className="font-display text-2xl font-medium leading-snug text-white sm:text-3xl">
+                  «Раньше мы теряли половину заявок из WhatsApp по ночам. С SPECTO
+                  клиенты получают ответ мгновенно, а менеджеры утром видят{" "}
+                  <span className="text-signal">только горячих</span>. Конверсия в
+                  встречу выросла втрое.»
                 </blockquote>
                 <figcaption className="mt-6 text-sm text-zinc-400">
                   <span className="font-semibold text-white">Руслан Ким</span> · руководитель
@@ -366,14 +396,16 @@ export default function HomePage() {
         <section id="contact" className="py-20">
           <div className="container-x">
             <Reveal>
-              <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-ink-850 p-10 text-center sm:p-16">
-                <div className="pointer-events-none absolute -top-24 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-accent-indigo/25 blur-[100px]" />
-                <h2 className="relative font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
-                  Перестаньте терять лидов уже завтра
+              <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-b from-ink-850 to-ink-900 p-10 text-center sm:p-16">
+                <div className="pointer-events-none absolute -bottom-32 left-1/2 h-72 w-[40rem] -translate-x-1/2 rounded-full bg-signal-500/15 blur-[110px]" />
+                <h2 className="relative font-display text-4xl font-bold tracking-tight text-white sm:text-5xl">
+                  Перестаньте терять лидов
+                  <br />
+                  уже завтра
                 </h2>
-                <p className="relative mx-auto mt-4 max-w-xl text-lg text-zinc-400">
-                  Покажем SPECTO на ваших реальных заявках. 14 дней бесплатно,
-                  без карты и обязательств.
+                <p className="relative mx-auto mt-5 max-w-xl text-lg text-zinc-400">
+                  Покажем SPECTO на ваших реальных заявках. 14 дней бесплатно, без
+                  карты и обязательств.
                 </p>
                 <div className="relative mt-8 flex flex-wrap justify-center gap-3">
                   <Link href="mailto:hello@specto.app" className="btn-primary">
