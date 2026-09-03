@@ -187,6 +187,23 @@ export async function countMessages(chatId) {
 
 // --- Состояние диалога / фоллоапы (specto_bot_state) ---
 
+// Текущее состояние диалога или null (нет строки / БД недоступна).
+export async function getState(chatId) {
+  if (!ready) return null;
+  try {
+    const res = await rest(
+      `/specto_bot_state?chat_id=eq.${encodeURIComponent(chatId)}` +
+      "&select=chat_id,platform,status,followup_step,last_user_at,next_followup_at&limit=1",
+      { headers: headers() }
+    );
+    const rows = await res.json();
+    return rows[0] || null;
+  } catch (err) {
+    console.error("getState error:", err.message);
+    return null;
+  }
+}
+
 export async function upsertState(chatId, row) {
   if (!ready) return;
   try {
