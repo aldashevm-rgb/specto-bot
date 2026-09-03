@@ -1,4 +1,9 @@
-import { isDbReady, upsertState, updateState, getDueFollowups } from "../db.js";
+import { isDbReady, upsertState, updateState, getDueFollowups, getState } from "../db.js";
+import { isBlocked, followupsEnabled } from "./optout.js";
+
+// Статусы диалога в specto_bot_state.
+export const ACTIVE = "active";
+export const STOPPED = "stopped";
 
 // Цепочка догоняющих сообщений. delay — смещение от последнего сообщения клиента.
 export const FOLLOWUP_MESSAGES = [
@@ -32,51 +37,126 @@ export function computeNextFollowupAt(step, lastUserAt) {
 }
 
 // Клиент написал — сбрасываем цепочку и планируем первый фоллоап заново.
-export async function scheduleFollowups(chatId, platform) {
-  const now = new Date().toISOString();
-  await upsertState(chatId, {
+// ВАЖНО: «стоп» липкий. Если диалог уже остановлен (клиент просил не писать)
+// или номер в стоп-листе — цепочка НЕ возобновляется, что бы клиент ни написал
+// дальше. Раньше любое следующее сообщение возвращало status=active и бот
+// снова начинал догонять того, кто просил его не беспокоить.
+// Снять стоп можно только вручную (status=active в specto_bot_state).
+export async function scheduleFollowups(chatId, platform, deps = {}) {
+  const {
+    getState: readState = getState,
+    upsertState: upsert = upsertState,
+    updateState: update = updateState,
+    now = () => new Date()
+  } = deps;
+
+  const nowIso = now().toISOString();
+
+  // Глобальный рубильник и стоп-лист — проактивных сообщений не будет вообще.
+  if (!followupsEnabled()) return { scheduled: false, reason: "disabled" };
+  if (isBlocked(chatId)) return { scheduled: false, reason: "blocklist" };
+
+  const state = await readState(chatId);
+  if (state && state.status === STOPPED) {
+    // Отметку последнего сообщения обновляем (для отчётов), но цепочку не будим.
+    await update(chatId, {
+      next_followup_at: null,
+      last_user_at: nowIso,
+      updated_at: nowIso
+    });
+    return { scheduled: false, reason: "stopped" };
+  }
+
+  await upsert(chatId, {
     platform,
-    status: "active",
+    status: ACTIVE,
     followup_step: 0,
-    last_user_at: now,
-    next_followup_at: computeNextFollowupAt(0, now),
-    updated_at: now
+    last_user_at: nowIso,
+    next_followup_at: computeNextFollowupAt(0, nowIso),
+    updated_at: nowIso
   });
+  return { scheduled: true };
 }
 
-// Клиент отказался — больше не пишем.
-export async function stopFollowups(chatId, platform) {
-  await upsertState(chatId, {
+// Клиент отказался — больше не пишем. Возвращает { alreadyStopped }, чтобы
+// не отправлять прощание повторно на каждое «отстаньте».
+export async function stopFollowups(chatId, platform, deps = {}) {
+  const {
+    getState: readState = getState,
+    upsertState: upsert = upsertState,
+    now = () => new Date()
+  } = deps;
+
+  const state = await readState(chatId);
+  const nowIso = now().toISOString();
+
+  await upsert(chatId, {
     platform,
-    status: "stopped",
+    status: STOPPED,
     next_followup_at: null,
-    updated_at: new Date().toISOString()
+    updated_at: nowIso
   });
+
+  return { alreadyStopped: Boolean(state && state.status === STOPPED) };
 }
 
 // Вызывается поллером: отправляет все назревшие фоллоапы. send(chatId, text, platform).
-export async function processDueFollowups(send) {
-  if (!isDbReady()) return;
-  const due = await getDueFollowups(new Date().toISOString());
+// Возвращает список отправленных { chat_id, step }.
+export async function processDueFollowups(send, deps = {}) {
+  const {
+    dbReady = isDbReady,
+    getDue = getDueFollowups,
+    getState: readState = getState,
+    updateState: update = updateState,
+    now = () => new Date(),
+    log = console.log
+  } = deps;
+
+  if (!dbReady()) return [];
+  if (!followupsEnabled()) {
+    log("Фоллоапы выключены глобально (FOLLOWUPS_ENABLED=0) — ничего не отправляю.");
+    return [];
+  }
+
+  const due = await getDue(now().toISOString());
+  const sent = [];
 
   for (const row of due) {
+    const nowIso = now().toISOString();
+
+    // Стоп-лист: номер вообще не наш адресат — гасим цепочку насовсем.
+    if (isBlocked(row.chat_id)) {
+      await update(row.chat_id, { status: STOPPED, next_followup_at: null, updated_at: nowIso });
+      continue;
+    }
+
+    // Свежая проверка статуса ПЕРЕД отправкой: клиент мог сказать «стоп» уже
+    // после того, как строка попала в выборку (или её сняли вручную).
+    // Не смогли прочитать состояние — не пишем (безопасный отказ), вернёмся
+    // к этой строке на следующем тике.
+    const state = await readState(row.chat_id);
+    if (!state || state.status !== ACTIVE) continue;
+
     const step = row.followup_step;
     const msg = FOLLOWUP_MESSAGES[step];
 
     // Сдвигаем шаг ДО отправки — чтобы не отправить дважды при гонке/перезапуске.
     const nextStep = step + 1;
-    await updateState(row.chat_id, {
+    await update(row.chat_id, {
       followup_step: nextStep,
       next_followup_at: computeNextFollowupAt(nextStep, row.last_user_at),
-      updated_at: new Date().toISOString()
+      updated_at: nowIso
     });
 
     if (!msg) continue; // шаг вне диапазона — просто закрыли цепочку
 
     try {
       await send(row.chat_id, msg.text, row.platform);
+      sent.push({ chat_id: row.chat_id, step });
     } catch (err) {
       console.error("Ошибка отправки фоллоапа:", err);
     }
   }
+
+  return sent;
 }
