@@ -9,6 +9,7 @@
     "start": "node index.js",
     "test": "node --test",
     "qualify": "node scripts/qualify.js",
+    "backfill-stops": "node scripts/backfill-stops.js",
     "copilot": "node copilot/cli.js",
     "copilot:web": "node copilot/server.js"
   },
