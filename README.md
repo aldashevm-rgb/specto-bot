@@ -56,6 +56,24 @@ CI прогоняет проверку синтаксиса и тесты на �
 (`.github/workflows/ci.yml`). Ветка `main` защищена: смержить можно только
 через PR с зелёным CI.
 
+## Деплой
+
+Бот живёт на Railway. Пуш в `main` запускает
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml): сначала те же
+проверки, что и в CI, затем выкатка — красная сборка на прод не уезжает.
+Можно выкатить и вручную: Actions → Deploy → Run workflow.
+
+Настроить один раз:
+
+| Где | Что |
+|---|---|
+| Railway → сервис → Settings → Tokens | создать Project Token |
+| GitHub → Secrets → Actions | `RAILWAY_TOKEN` = этот токен |
+| GitHub → Variables → Actions | `RAILWAY_SERVICE` — имя сервиса, если оно не `specto-bot` |
+
+Переменные окружения задаются в Railway (Variables) и читаются при старте —
+после изменения нужен рестарт сервиса.
+
 ## Переменные окружения
 
 Полный список с пояснениями — в [`.env.example`](./.env.example). Ключевые:

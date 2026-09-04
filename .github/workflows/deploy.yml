@@ -1,0 +1,77 @@
+# Выкатка бота на Railway.
+#
+# Срабатывает на пуш в main (и вручную — кнопкой Run workflow). Сначала гоняет
+# те же проверки, что и CI: красная сборка на прод не уезжает.
+#
+# Что нужно настроить один раз:
+#   1. Railway → проект → сервис бота → Settings → Tokens → создать Project Token.
+#   2. GitHub → Settings → Secrets and variables → Actions:
+#        Secrets   → RAILWAY_TOKEN   = токен из п.1
+#        Variables → RAILWAY_SERVICE = имя сервиса в Railway (если не specto-bot)
+#
+# Токен привязан к одному окружению проекта, поэтому катит ровно тот сервис,
+# для которого создан.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    # Соседние проекты в этом же репозитории бота не касаются — не тревожим прод.
+    paths-ignore:
+      - "arb-core/**"
+      - "copilot/**"
+      - "README.md"
+      - ".env.example"
+  workflow_dispatch:
+
+# Две выкатки одновременно не нужны; текущую не обрываем, чтобы не оставить
+# прод в полусобранном состоянии.
+concurrency:
+  group: deploy-railway
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install
+      - name: Syntax check
+        run: |
+          for f in $(git ls-files '*.js'); do
+            node --check "$f"
+          done
+      - run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Проверить, что токен задан
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "::error::Не задан секрет RAILWAY_TOKEN. Создайте Project Token в Railway (Settings → Tokens) и положите его в Secrets репозитория."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Поставить Railway CLI
+        run: npm install -g @railway/cli@3
+
+      - name: Выкатить
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          SERVICE: ${{ vars.RAILWAY_SERVICE || 'specto-bot' }}
+        # --ci: дождаться сборки и упасть, если она не собралась.
+        run: railway up --service "$SERVICE" --ci
