@@ -185,6 +185,29 @@ export async function countMessages(chatId) {
   }
 }
 
+// Все сообщения клиентов (role=user) постранично. Нужно разовому скрипту
+// backfill-stops: он ищет по истории тех, кто просил больше не писать.
+// sinceIso — брать только сообщения не раньше этого момента.
+export async function getUserMessages({ sinceIso = null, pageSize = 1000, maxRows = 200000 } = {}) {
+  if (!ready) return [];
+  const out = [];
+  try {
+    for (let offset = 0; offset < maxRows; offset += pageSize) {
+      const path =
+        "/specto_bot_messages?select=chat_id,platform,content,created_at&role=eq.user" +
+        (sinceIso ? `&created_at=gte.${encodeURIComponent(sinceIso)}` : "") +
+        `&order=created_at.asc&limit=${pageSize}&offset=${offset}`;
+      const res = await rest(path, { headers: headers() });
+      const rows = await res.json();
+      out.push(...rows);
+      if (rows.length < pageSize) break;
+    }
+  } catch (err) {
+    console.error("getUserMessages error:", err.message);
+  }
+  return out;
+}
+
 // --- Состояние диалога / фоллоапы (specto_bot_state) ---
 
 // Текущее состояние диалога или null (нет строки / БД недоступна).
@@ -227,6 +250,21 @@ export async function updateState(chatId, fields) {
     });
   } catch (err) {
     console.error("updateState error:", err.message);
+  }
+}
+
+// Все строки состояния (таблица бота небольшая). Для разовых скриптов.
+export async function getStates(limit = 10000) {
+  if (!ready) return [];
+  try {
+    const res = await rest(
+      `/specto_bot_state?select=chat_id,platform,status,followup_step&limit=${limit}`,
+      { headers: headers() }
+    );
+    return await res.json();
+  } catch (err) {
+    console.error("getStates error:", err.message);
+    return [];
   }
 }
 
