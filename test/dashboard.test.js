@@ -36,6 +36,12 @@ test("normalizePhone: приводит локальные форматы к ко
   assert.equal(normalizePhone(null), "");
 });
 
+test("normalizePhone: международный набор 00… — код страны не дублируется", () => {
+  assert.equal(normalizePhone("0077012345678"), "77012345678");
+  assert.equal(normalizePhone("00 44 20 7123 4567"), "442071234567");
+  assert.equal(normalizePhone("00"), "");
+});
+
 test("normalizePhone: код страны настраивается", () => {
   assert.equal(normalizePhone("07012345678", "44"), "447012345678");
 });

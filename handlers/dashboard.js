@@ -16,9 +16,12 @@ const DEFAULT_CC = String(process.env.DASHBOARD_COUNTRY_CODE || "7").replace(/\D
 export function normalizePhone(raw, cc = DEFAULT_CC) {
   let d = String(raw ?? "").replace(/\D/g, "");
   if (!d) return "";
+  // Международный набор «00…»: код страны уже внутри номера — только снимаем нули.
+  // Дописывать cc здесь нельзя, иначе 0077012345678 → 777012345678.
+  if (d.startsWith("00")) d = d.replace(/^0+/, "");
   // Локальный формат РФ/КЗ: 8XXXXXXXXXX → 7XXXXXXXXXX.
-  if (d.length === 11 && d.startsWith("8")) d = cc + d.slice(1);
-  // Ведущие нули (набор из-за границы «00…» или локальный «0…») — убрать.
+  else if (d.length === 11 && d.startsWith("8")) d = cc + d.slice(1);
+  // Локальный ведущий ноль (0XXXXXXXXX) — заменяем на код страны.
   else if (d.startsWith("0")) d = cc + d.replace(/^0+/, "");
   // 10 цифр без кода страны — дописать код.
   else if (d.length === 10) d = cc + d;
