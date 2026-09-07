@@ -7,3 +7,6 @@ orders.json
 predictions.jsonl
 .DS_Store
 *.patch
+.copilot-memory.md
+generated/
+.copilot.env

@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { handleMessage } from "./handlers/router.js";
 import { sendMessage } from "./whatsapp.js";
 import { processDueFollowups } from "./handlers/followup.js";
+import { followupsEnabled } from "./handlers/optout.js";
 import { processQualifications } from "./handlers/qualify.js";
 import { runWatchdog } from "./handlers/watchdog.js";
 import { renderHotHtml } from "./handlers/dashboard.js";
@@ -93,11 +94,19 @@ app.listen(PORT, () => {
   if (!WA_APP_SECRET) console.warn("WHATSAPP_APP_SECRET не задан — подпись WhatsApp не проверяется.");
 
   // Поллер фоллоапов: раз в минуту отправляет назревшие сообщения (переживает рестарт).
-  if (isDbReady()) {
+  // FOLLOWUPS_ENABLED=0 — глобальный стоп: бот не инициирует переписку вообще
+  // (на входящие сообщения по-прежнему отвечает).
+  if (isDbReady() && followupsEnabled()) {
     const tick = () => processDueFollowups(sendMessage).catch(err =>
       console.error("Ошибка поллера фоллоапов:", err));
     setInterval(tick, 60 * 1000);
     tick();
+  } else if (isDbReady()) {
+    console.warn("Догоняющие сообщения ВЫКЛ (FOLLOWUPS_ENABLED=0) — бот сам никому не пишет.");
+  }
+
+  if (process.env.FOLLOWUP_BLOCKLIST) {
+    console.log("Стоп-лист номеров задан (FOLLOWUP_BLOCKLIST) — этим контактам бот не пишет.");
   }
 
   // Поллер ИИ-квалификации лидов (по умолчанию ВЫКЛ — включается QUAL_ENABLED=1).
